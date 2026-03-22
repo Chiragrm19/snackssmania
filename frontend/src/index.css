@@ -1,0 +1,179 @@
+:root {
+  --bg-dark: #000000;
+  --bg-card: #0a0a0a;
+  --bg-surface: #121212;
+  --text-main: #ffffff;
+  --text-muted: #888888;
+  --text-faint: #555555;
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-focus: rgba(255, 255, 255, 0.3);
+  --glass: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --accent-white: #ffffff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.glass:hover {
+  background: var(--glass-hover);
+  border: 1px solid var(--border-focus);
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+button:active {
+  transform: scale(0.96);
+  opacity: 0.8;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInOverlay {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-fade {
+  animation: fadeInUp 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.animate-overlay {
+  animation: fadeInOverlay 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s cubic-bezier(0.25, 1, 0.5, 1) backwards;
+}
+
+/* Remove colored classes, keep neutral spin */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Layout Utilities */
+.container {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 24px;
+  position: relative;
+}
+
+.admin-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-focus);
+}
+
+/* Premium Gradient Border */
+.premium-border {
+  position: relative;
+  background: var(--bg-surface);
+  border-radius: 12px;
+  z-index: 1;
+  padding: 12px 16px;
+  border: 1px solid transparent;
+}
+
+.premium-border::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.4) 30%,
+    rgba(255, 255, 255, 0.8) 50%,
+    rgba(255, 255, 255, 0.4) 70%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: 13.5px;
+  z-index: -1;
+  animation: shine-border 4s linear infinite;
+  opacity: 0.6;
+}
+
+@keyframes shine-border {
+  0% { background-position: 100% 0%; }
+  100% { background-position: -100% 0%; }
+}
