@@ -18,7 +18,7 @@ const QRPage = () => {
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
                 <header style={{ textAlign: 'center', marginBottom: '48px' }}>
                     <h1 style={{ fontSize: '3.5rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em', lineHeight: '1.1' }}>
-                        SNACKSMANIA
+                        daawat
                     </h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '1rem', letterSpacing: '0.02em', marginBottom: '24px' }}>Scan to open the menu</p>
                     

@@ -68,7 +68,7 @@ const LoginPage = () => {
                         color: 'var(--text-main)',
                         letterSpacing: '-0.04em'
                     }}>
-                        SNACKSMANIA
+                        daawat
                     </h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', letterSpacing: '0.02em', fontWeight: '500' }}>Admin Portal Access</p>
                 </div>
@@ -92,7 +92,7 @@ const LoginPage = () => {
                         <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', marginLeft: '4px', fontWeight: '500' }}>Email Address</label>
                         <input
                             type="email"
-                            placeholder="admin@snacksmania.com"
+                            placeholder="admin@daawat.com"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required

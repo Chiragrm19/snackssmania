@@ -209,7 +209,7 @@ const MenuPage = () => {
                 </div>
                 <h1 style={{ fontSize: '3rem', marginBottom: '16px', fontWeight: '700', letterSpacing: '-0.04em', lineHeight: '1.2' }}>Thank You.</h1>
                 <p style={{ color: 'var(--text-muted)', marginBottom: '48px', fontSize: '1.2rem', maxWidth: '300px', lineHeight: '1.5' }}>
-                    We hope you enjoyed your time at SNACKSMANIA.
+                    We hope you enjoyed your time at daawat.
                 </p>
                 <div className="glass" style={{ padding: '32px', borderRadius: '24px', width: '100%', maxWidth: '400px', border: '1px solid var(--border-subtle)' }}>
                     <p style={{ fontSize: '1rem', color: 'var(--text-main)', letterSpacing: '0.02em', fontWeight: '500' }}>Please visit us again!</p>
@@ -249,7 +249,7 @@ const MenuPage = () => {
             <header style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
-                        <h1 style={{ fontSize: '2rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em' }}>SNACKSMANIA</h1>
+                        <h1 style={{ fontSize: '2rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em' }}>daawat</h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', fontWeight: '500' }}>Table {tableId}</p>
                     </div>
                 </div>

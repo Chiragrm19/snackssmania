@@ -170,7 +170,7 @@ const AdminPage = () => {
             <div className="admin-container animate-fade" style={{ minHeight: '100vh', paddingBottom: '40px' }}>
                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
                     <div>
-                        <h1 style={{ fontSize: '2.5rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em' }}>SNACKSMANIA ADMIN</h1>
+                        <h1 style={{ fontSize: '2.5rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em' }}>daawat ADMIN</h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>Dashboard & Operations</p>
                     </div>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
