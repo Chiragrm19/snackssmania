@@ -19,16 +19,43 @@ const MenuPage = () => {
     const [activeCategory, setActiveCategory] = useState('all');
     const [cart, setCart] = useState({});
     const [orderStatus, setOrderStatus] = useState(null); // 'submitting' | 'success'
+    const [lastOrderId, setLastOrderId] = useState(null);
+    const [displayOrderId, setDisplayOrderId] = useState(null);
     const [showThankYou, setShowThankYou] = useState(false);
     const [showReview, setShowReview] = useState(false);
     const wasOccupied = useRef(false); // Track if the table was ever occupied this session
 
     const location = useLocation();
-    const tableId = new URLSearchParams(location.search).get('table') || '4';
+    const tableId = new URLSearchParams(location.search).get('table') || '1';
+    const isTakeaway = tableId === '0';
+
+    useEffect(() => {
+        if (!lastOrderId) return;
+
+        const channel = supabase
+            .channel(`order-status-${lastOrderId}`)
+            .on('postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${lastOrderId}` },
+                (payload) => {
+                    if (payload.new.status === 'paid') {
+                        setShowThankYou(true);
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [lastOrderId]);
 
     useEffect(() => {
         fetchMenu();
+    }, []);
 
+    useEffect(() => {
+        if (isTakeaway) return; // Table-specific listeners only for dine-in
+        
         // Check if the table is already occupied when the user loads the page
         const checkInitialStatus = async () => {
             const { data } = await supabase.from('tables').select('is_free').eq('id', tableId).single();
@@ -166,20 +193,45 @@ const MenuPage = () => {
                 if (updateError) throw updateError;
             } else {
                 // Insert brand new order
-                const { error: insertError } = await supabase.from('orders').insert({
+                let finalItems = cartItems.map(i => ({ 
+                    id: i.id, 
+                    name: i.name, 
+                    qty: i.qty, 
+                    price: i.price,
+                    isNew: true 
+                }));
+
+                // For takeaway, calculate a separate number for today
+                if (isTakeaway) {
+                    const today = new Date().toISOString().split('T')[0];
+                    const { count } = await supabase
+                        .from('orders')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('table_id', 0)
+                        .gte('created_at', today);
+                    
+                    const takeawayNo = (count || 0) + 1;
+                    // Prepend metadata item
+                    finalItems = [{ type: 'METADATA', takeaway_no: takeawayNo }, ...finalItems];
+                }
+
+                const { data: newOrderData, error: insertError } = await supabase.from('orders').insert({
                     table_id: parseInt(tableId),
-                    items: cartItems.map(i => ({ 
-                        id: i.id, 
-                        name: i.name, 
-                        qty: i.qty, 
-                        price: i.price,
-                        isNew: true // All items are new in a fresh order
-                    })),
+                    items: finalItems,
                     total: cartTotal,
                     status: 'new'
-                });
+                }).select().single();
                 
                 if (insertError) throw insertError;
+                if (newOrderData) {
+                    setLastOrderId(newOrderData.id);
+                    setDisplayOrderId(newOrderData.id);
+                    // If metadata exists, extract it for display
+                    const meta = newOrderData.items.find(i => i.type === 'METADATA');
+                    if (meta) {
+                        setDisplayOrderId(`TK-${meta.takeaway_no}`);
+                    }
+                }
             }
 
             setOrderStatus('success');
@@ -209,7 +261,7 @@ const MenuPage = () => {
                 </div>
                 <h1 style={{ fontSize: '3rem', marginBottom: '16px', fontWeight: '700', letterSpacing: '-0.04em', lineHeight: '1.2' }}>Thank You.</h1>
                 <p style={{ color: 'var(--text-muted)', marginBottom: '48px', fontSize: '1.2rem', maxWidth: '300px', lineHeight: '1.5' }}>
-                    We hope you enjoyed your time at daawat.
+                    We hope you enjoyed your time at snackssmania.
                 </p>
                 <div className="glass" style={{ padding: '32px', borderRadius: '24px', width: '100%', maxWidth: '400px', border: '1px solid var(--border-subtle)' }}>
                     <p style={{ fontSize: '1rem', color: 'var(--text-main)', letterSpacing: '0.02em', fontWeight: '500' }}>Please visit us again!</p>
@@ -220,23 +272,28 @@ const MenuPage = () => {
 
     if (orderStatus === 'success') {
         return (
-            <div className="container animate-fade" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: '100vh', padding: '24px' }}>
-                <div style={{ width: '80px', height: '80px', borderRadius: '40px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '40px', marginBottom: '32px', boxShadow: '0 8px 32px rgba(255,255,255,0.2)' }}>
-                    ✓
-                </div>
-                <h1 style={{ fontSize: '2.5rem', marginBottom: '16px', fontWeight: '700', letterSpacing: '-0.04em' }}>Order Placed.</h1>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '40px', fontSize: '1.1rem', maxWidth: '300px' }}>
-                    We're preparing your order for Table {tableId}.
+            <div className="animate-fade" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: '100vh', padding: '24px', background: 'var(--bg-dark)' }}>
+                <div className="success-checkmark animate-float">✓</div>
+                <h1 style={{ fontSize: '2.8rem', marginBottom: '12px', fontWeight: '800', letterSpacing: '-0.05em', background: 'linear-gradient(135deg, #fff 0%, #a0a0c0 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    Order Placed.
+                </h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', marginBottom: '40px', lineHeight: '1.6', fontWeight: '500', maxWidth: '280px' }}>
+                    {isTakeaway
+                        ? `Your order #${displayOrderId} is being prepared.`
+                        : `Table ${tableId} — we're on it.`}
                 </p>
-                <div className="glass" style={{ padding: '24px', borderRadius: '24px', width: '100%', marginBottom: '40px' }}>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Estimated Wait</p>
-                    <p style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>15–20 min</p>
+
+                <div className="glass" style={{ padding: '28px 32px', borderRadius: '24px', width: '100%', maxWidth: '320px', marginBottom: '32px', borderTopColor: 'rgba(255,255,255,0.18)' }}>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '700', marginBottom: '8px' }}>Estimated Wait</p>
+                    <p style={{ fontSize: '2.4rem', fontWeight: '800', color: 'var(--text-main)', letterSpacing: '-0.04em', lineHeight: 1 }}>15–20</p>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-faint)', fontWeight: '500', marginTop: '4px' }}>minutes</p>
                 </div>
+
                 <button
                     onClick={() => setOrderStatus(null)}
-                    style={{ padding: '16px 32px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', borderRadius: '24px', fontSize: '1rem', fontWeight: '600' }}
+                    style={{ padding: '14px 32px', background: 'linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 100%)', border: '1px solid rgba(255,255,255,0.12)', borderTopColor: 'rgba(255,255,255,0.22)', color: 'var(--text-main)', borderRadius: '24px', fontSize: '1rem', fontWeight: '700', boxShadow: '0 4px 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)' }}
                 >
-                    Order More
+                    + Order More
                 </button>
             </div>
         );
@@ -247,36 +304,39 @@ const MenuPage = () => {
         <>
         <div className="container animate-fade">
             <header style={{ marginBottom: '32px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <div>
-                        <h1 style={{ fontSize: '2rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em' }}>daawat</h1>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', fontWeight: '500' }}>Table {tableId}</p>
+                        <h1 style={{ fontSize: '1.8rem', color: 'var(--text-main)', fontWeight: '800', letterSpacing: '-0.05em', lineHeight: 1 }}>snackssmania</h1>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: '600', marginTop: '4px', letterSpacing: '0.02em' }}>
+                            {isTakeaway ? '📦 Takeaway Order' : `🍽️ Table ${tableId}`}
+                        </p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)' }}>
+                        <span className="status-dot live" />
+                        <span style={{ fontSize: '0.72rem', color: 'var(--accent-green)', fontWeight: '700', letterSpacing: '0.04em' }}>OPEN</span>
                     </div>
                 </div>
 
                 <input
                     type="text"
-                    placeholder="Search menu..."
-                    className="glass"
+                    placeholder="🔍  Search menu…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     style={{
                         width: '100%',
-                        padding: '16px 20px',
-                        borderRadius: '16px',
+                        padding: '14px 18px',
+                        fontSize: '0.95rem',
                         color: 'var(--text-main)',
-                        outline: 'none',
-                        fontSize: '1rem',
-                        transition: 'all 0.3s ease'
+                        marginBottom: '4px',
                     }}
                 />
             </header>
 
-            <div className="categories" style={{
+            <div style={{
                 display: 'flex',
-                gap: '12px',
+                gap: '8px',
                 overflowX: 'auto',
-                paddingBottom: '24px',
+                paddingBottom: '20px',
                 marginBottom: '8px',
                 msOverflowStyle: 'none',
                 scrollbarWidth: 'none',
@@ -286,17 +346,7 @@ const MenuPage = () => {
                     <button
                         key={cat.id}
                         onClick={() => setActiveCategory(cat.id)}
-                        className="glass"
-                        style={{
-                            padding: '10px 24px',
-                            borderRadius: '24px',
-                            whiteSpace: 'nowrap',
-                            backgroundColor: activeCategory === cat.id ? 'var(--accent-white)' : 'var(--glass)',
-                            border: activeCategory === cat.id ? '1px solid var(--accent-white)' : '1px solid var(--border-subtle)',
-                            color: activeCategory === cat.id ? 'var(--bg-dark)' : 'var(--text-main)',
-                            fontWeight: activeCategory === cat.id ? '600' : '500',
-                            fontSize: '0.95rem'
-                        }}
+                        className={`cat-pill ${activeCategory === cat.id ? 'active' : ''}`}
                     >
                         {cat.name}
                     </button>
@@ -304,40 +354,29 @@ const MenuPage = () => {
             </div>
 
             {loading ? (
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '120px 0',
-                    gap: '24px'
-                }}>
-                    <div className="animate-spin" style={{
-                        width: '48px',
-                        height: '48px',
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '120px 0', gap: '20px' }}>
+                    <div style={{
+                        width: '44px',
+                        height: '44px',
                         borderRadius: '50%',
-                        border: '3px solid var(--border-subtle)',
-                        borderTop: '3px solid var(--accent-white)'
-                    }}></div>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', fontWeight: '500', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                        Loading Menu
-                    </p>
+                        border: '3px solid rgba(255,255,255,0.08)',
+                        borderTopColor: 'rgba(167,139,250,0.8)',
+                        animation: 'spin 0.8s linear infinite',
+                        boxShadow: '0 0 20px rgba(167,139,250,0.2)'
+                    }} />
+                    <p style={{ color: 'var(--text-faint)', fontSize: '0.85rem', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Loading Menu</p>
                 </div>
             ) : (
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '16px',
-                    paddingBottom: '100px'
-                }}>
-                    {filteredItems.map(item => (
-                        <MenuCard
-                            key={item.id}
-                            item={item}
-                            cartQuantity={cart[item.id]?.qty || 0}
-                            onAdd={addToCart}
-                            onRemove={removeFromCart}
-                        />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px', paddingBottom: '120px' }}>
+                    {filteredItems.map((item, i) => (
+                        <div key={item.id} style={{ animationDelay: `${i * 0.05}s` }}>
+                            <MenuCard
+                                item={item}
+                                cartQuantity={cart[item.id]?.qty || 0}
+                                onAdd={addToCart}
+                                onRemove={removeFromCart}
+                            />
+                        </div>
                     ))}
                 </div>
             )}

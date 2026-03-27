@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import OrderPopup from '../components/OrderPopup';
 import InvoiceModal from '../components/InvoiceModal';
+import InventoryManager from '../components/InventoryManager';
+import BulkQRModal from '../components/BulkQRModal';
 import { QRCodeSVG } from 'qrcode.react';
 
 const AdminPage = () => {
     const [tables, setTables] = useState([]);
     const [orders, setOrders] = useState([]);
-    const [activeTab, setActiveTab] = useState('floor'); // 'floor' | 'queue' | 'customize'
+    const [activeTab, setActiveTab] = useState('floor'); // 'floor' | 'queue' | 'takeaway' | 'customize'
     const [newOrder, setNewOrder] = useState(null);
     const [notifiedOrderTotals, setNotifiedOrderTotals] = useState({});
     const [selectedTableOrder, setSelectedTableOrder] = useState(null);
@@ -16,7 +18,45 @@ const AdminPage = () => {
     const [loading, setLoading] = useState(true);
     const [qrTable, setQrTable] = useState(null);
     const [qrBaseUrl, setQrBaseUrl] = useState(window.location.origin);
+    const [mappingItem, setMappingItem] = useState(null);
+    const [showBulkQR, setShowBulkQR] = useState(false);
+    
+    // Recipe Modal State
+    const [newMatId, setNewMatId] = useState('');
+    const [newMatQty, setNewMatQty] = useState('');
+    
     const detectedIp = "10.18.40.43";
+
+    // --- Inventory State (Lifted) ---
+    const [materials, setMaterials] = useState(() => {
+        const saved = localStorage.getItem('inv_materials');
+        return saved ? JSON.parse(saved) : [];
+    });
+    const [invRecipes, setInvRecipes] = useState(() => {
+        const saved = localStorage.getItem('inv_recipes');
+        return saved ? JSON.parse(saved) : [];
+    });
+    const [consumeLog, setConsumeLog] = useState(() => {
+        const saved = localStorage.getItem('inv_consume_log');
+        return saved ? JSON.parse(saved) : [];
+    });
+    const [restockLog, setRestockLog] = useState(() => {
+        const saved = localStorage.getItem('inv_restock_log');
+        return saved ? JSON.parse(saved) : [];
+    });
+    const [deductedOrders, setDeductedOrders] = useState(() => {
+        const saved = localStorage.getItem('inv_deducted_orders');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    // --- Persistence Sync ---
+    useEffect(() => {
+        localStorage.setItem('inv_materials', JSON.stringify(materials));
+        localStorage.setItem('inv_recipes', JSON.stringify(invRecipes));
+        localStorage.setItem('inv_consume_log', JSON.stringify(consumeLog));
+        localStorage.setItem('inv_restock_log', JSON.stringify(restockLog));
+        localStorage.setItem('inv_deducted_orders', JSON.stringify(deductedOrders));
+    }, [materials, invRecipes, consumeLog, restockLog, deductedOrders]);
 
     const fetchMenuItems = async () => {
         const { data } = await supabase.from('menu_items').select('*');
@@ -35,8 +75,7 @@ const AdminPage = () => {
     const fetchOrders = async () => {
         const { data } = await supabase.from('orders')
             .select('*')
-            .neq('status', 'paid')
-            .order('id', { ascending: true });
+            .order('id', { ascending: true }); // Fetching all (active + paid) for stats
 
         if (data) {
             setOrders(data);
@@ -46,6 +85,21 @@ const AdminPage = () => {
     const fetchInitialData = async () => {
         setLoading(true);
         await Promise.all([fetchTables(), fetchOrders(), fetchMenuItems()]);
+        
+        // Auto-seed required drinks if missing
+        const requiredDrinks = [
+            { name: 'Water Bottle', price: 20, category: 'cold', emoji: '💧', description: 'Chilled mineral water', is_veg: true },
+            { name: 'Sprite', price: 40, category: 'cold', emoji: '🥤', description: 'Lemon-lime soda', is_veg: true },
+            { name: 'Thumbs Up', price: 40, category: 'cold', emoji: '🥤', description: 'Strong cola', is_veg: true },
+        ];
+
+        for (const drink of requiredDrinks) {
+            if (!menuItems.find(m => m.name.toLowerCase() === drink.name.toLowerCase())) {
+                await supabase.from('menu_items').insert(drink);
+            }
+        }
+        
+        await fetchMenuItems(); // Refresh after seeding
         setLoading(false);
     };
 
@@ -82,6 +136,59 @@ const AdminPage = () => {
             }
         }
     }, [orders, newOrder, notifiedOrderTotals]);
+
+    // --- Automated Stock Deduction ---
+    useEffect(() => {
+        const ordersToDeduct = orders.filter(o => 
+            (o.status === 'preparing' || o.status === 'ready' || o.status === 'paid') && 
+            !deductedOrders.includes(o.id)
+        );
+
+        if (ordersToDeduct.length > 0) {
+            let updatedMaterials = [...materials];
+            let newLogs = [];
+            let newDeductedIds = [...deductedOrders];
+
+            ordersToDeduct.forEach(order => {
+                order.items.forEach(item => {
+                    // Normalize item name for matching
+                    const recipe = invRecipes.find(r => r.menuItemId === item.id || r.name === item.name);
+                    if (recipe) {
+                        const qty = item.quantity || 1;
+                        recipe.recipe.forEach(ing => {
+                            const matIdx = updatedMaterials.findIndex(m => m.id === ing.materialId);
+                            if (matIdx !== -1) {
+                                updatedMaterials[matIdx] = {
+                                    ...updatedMaterials[matIdx],
+                                    stock: updatedMaterials[matIdx].stock - (ing.qty * qty)
+                                };
+                            }
+                        });
+                        newLogs.push({
+                            id: Math.random().toString(36).substr(2, 9),
+                            time: Date.now(),
+                            recipeName: order.table_id === 0 ? `TK-${order.id} (${item.name})` : `Table ${order.table_id} (${item.name})`,
+                            qty: qty,
+                            deducted: recipe.recipe.map(ing => {
+                                const m = materials.find(mat => mat.id === ing.materialId);
+                                return { name: m?.name || 'Unknown', unit: m?.unit || '', qty: ing.qty * qty };
+                            })
+                        });
+                    }
+                });
+                newDeductedIds.push(order.id);
+            });
+
+            if (newLogs.length > 0) {
+                setMaterials(updatedMaterials);
+                setConsumeLog(prev => [...newLogs, ...prev]);
+                setDeductedOrders(newDeductedIds);
+            } else {
+                // Mark as processed even if no recipe matches
+                setDeductedOrders(newDeductedIds);
+            }
+        }
+    }, [orders, materials, invRecipes, deductedOrders]);
 
     const acceptOrder = async (orderId, tableId) => {
         try {
@@ -147,6 +254,47 @@ const AdminPage = () => {
         }
     };
 
+    const completeTakeaway = async (orderId) => {
+        try {
+            const { error } = await supabase.from('orders')
+                .update({ status: 'paid' })
+                .eq('id', orderId);
+            
+            if (error) throw error;
+            setOrders(prev => prev.filter(o => o.id !== orderId));
+            alert('Parcel Handed Over Successfully!');
+        } catch (err) {
+            console.error('Error completing takeaway:', err.message);
+            alert('Failed to complete takeaway: ' + err.message);
+        }
+    };
+
+    const handleOrderPaid = async (orderId, method) => {
+        try {
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            const existingMeta = order.items.find(i => i.type === 'PAYMENT_METADATA');
+            let newItems = [...order.items];
+            
+            if (existingMeta) {
+                newItems = newItems.map(i => i.type === 'PAYMENT_METADATA' ? { ...i, method } : i);
+            } else {
+                newItems.push({ type: 'PAYMENT_METADATA', method });
+            }
+
+            const { error } = await supabase.from('orders')
+                .update({ items: newItems, status: 'paid' })
+                .eq('id', orderId);
+
+            if (error) throw error;
+            fetchOrders();
+            setInvoiceOrder(null);
+        } catch (err) {
+            console.error('Error recording payment:', err.message);
+        }
+    };
+
     const handleTableClick = (table) => {
         const tableOrder = orders.find(o => o.table_id === table.id && o.status !== 'paid');
         if (tableOrder) {
@@ -159,8 +307,19 @@ const AdminPage = () => {
         const occupied = occupiedTableIds.size;
         const free = tables.length - occupied;
         const activeOrders = orders.length;
-        const revenue = orders.filter(o => o.status === 'paid').reduce((acc, curr) => acc + curr.total, 0);
-        return { free, occupied, activeOrders, revenue };
+
+        // Revenue Breakdown
+        const paidOrders = orders.filter(o => o.status === 'paid');
+        const revenue = paidOrders.reduce((acc, curr) => acc + curr.total, 0);
+        
+        const cashRevenue = paidOrders.reduce((acc, curr) => {
+            const payMeta = curr.items.find(i => i.type === 'PAYMENT_METADATA');
+            return acc + (payMeta?.method === 'Cash' || !payMeta ? curr.total : 0);
+        }, 0);
+
+        const onlineRevenue = revenue - cashRevenue;
+
+        return { free, occupied, activeOrders, revenue, cashRevenue, onlineRevenue };
     };
 
     const stats = getStats();
@@ -168,42 +327,40 @@ const AdminPage = () => {
     return (
         <>
             <div className="admin-container animate-fade" style={{ minHeight: '100vh', paddingBottom: '40px' }}>
-                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', gap: '16px', flexWrap: 'wrap' }}>
                     <div>
-                        <h1 style={{ fontSize: '2.5rem', color: 'var(--text-main)', fontWeight: '700', letterSpacing: '-0.04em' }}>daawat ADMIN</h1>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>Dashboard & Operations</p>
+                        <h1 style={{ fontSize: 'clamp(1.4rem, 5vw, 2.2rem)', color: 'var(--text-main)', fontWeight: '800', letterSpacing: '-0.04em', lineHeight: 1.1 }}>snackssmania ADMIN</h1>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: '500', marginTop: '4px' }}>Dashboard & Operations</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <button
                             onClick={() => setActiveTab('customize')}
                             style={{
-                                padding: '12px 20px',
-                                borderRadius: '16px',
+                                padding: '10px 16px',
+                                borderRadius: '14px',
                                 backgroundColor: activeTab === 'customize' ? 'var(--accent-white)' : 'var(--glass)',
                                 color: activeTab === 'customize' ? 'var(--bg-dark)' : 'var(--text-main)',
                                 border: '1px solid var(--border-subtle)',
-                                fontSize: '0.95rem',
-                                fontWeight: '600',
-                                letterSpacing: '-0.01em',
+                                fontSize: '0.85rem',
+                                fontWeight: '700',
                                 transition: 'all 0.3s'
                             }}
                         >
-                            Customize
+                            ⚙️ Customize
                         </button>
-                        <div className="glass" style={{ padding: '12px 20px', borderRadius: '16px', fontWeight: '600', color: 'var(--text-main)' }}>
-                            🔔 <span style={{ marginLeft: '8px' }}>{newOrder ? '1 New' : '0'}</span>
+                        <div className="glass" style={{ padding: '10px 16px', borderRadius: '14px', fontWeight: '600', color: 'var(--text-main)', fontSize: '0.85rem' }}>
+                            🔔 <span style={{ marginLeft: '6px' }}>{newOrder ? '1 New' : '0'}</span>
                         </div>
                         <button
                             onClick={() => supabase.auth.signOut()}
                             style={{
-                                padding: '12px 20px',
-                                borderRadius: '16px',
+                                padding: '10px 16px',
+                                borderRadius: '14px',
                                 backgroundColor: 'var(--glass)',
                                 color: 'var(--text-main)',
                                 border: '1px solid var(--border-subtle)',
-                                fontSize: '0.95rem',
-                                fontWeight: '600',
-                                letterSpacing: '-0.01em'
+                                fontSize: '0.85rem',
+                                fontWeight: '700',
                             }}
                         >
                             Sign Out
@@ -214,49 +371,58 @@ const AdminPage = () => {
                 {/* Stats Bar */}
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: '24px',
-                    marginBottom: '48px'
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: '12px',
+                    marginBottom: '28px'
                 }}>
                     {[
-                        { label: 'Occupied', val: stats.occupied },
-                        { label: 'Free', val: stats.free },
-                        { label: 'Active Orders', val: stats.activeOrders },
-                        { label: 'Revenue (Today)', val: `₹${stats.revenue}` }
+                        { label: 'Occupied',  val: stats.occupied,      icon: '🪑', c: 'var(--text-main)' },
+                        { label: 'Free',       val: stats.free,          icon: '✅', c: 'var(--accent-green)' },
+                        { label: 'Orders',     val: stats.activeOrders,  icon: '📋', c: 'var(--accent-purple)' },
+                        { label: 'Total Rev',  val: `₹${stats.revenue}`, icon: '💰', c: 'var(--text-main)' },
+                        { label: 'Cash',       val: `₹${stats.cashRevenue}`, icon: '💵', c: '#fbbf24' },
+                        { label: 'Online',     val: `₹${stats.onlineRevenue}`, icon: '💳', c: '#60a5fa' }
                     ].map((s, i) => (
-                        <div key={i} className="glass" style={{ padding: '24px', borderRadius: '24px' }}>
-                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '600' }}>{s.label}</p>
-                            <p style={{ fontSize: '2.5rem', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.04em' }}>{s.val}</p>
+                        <div key={i} className="glass" style={{ padding: '16px 12px', borderRadius: '18px', textAlign: 'center' }}>
+                            <p style={{ fontSize: '1.2rem', marginBottom: '4px' }}>{s.icon}</p>
+                            <p style={{ fontSize: 'clamp(1.1rem, 3.5vw, 1.8rem)', fontWeight: '900', color: s.c, letterSpacing: '-0.04em' }}>{s.val}</p>
+                            <p style={{ color: 'var(--text-faint)', fontSize: '0.65rem', marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: '800' }}>{s.label}</p>
                         </div>
                     ))}
                 </div>
 
                 {/* Tabs */}
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '32px', backgroundColor: 'var(--glass)', padding: '6px', borderRadius: '20px', width: 'fit-content' }}>
-                    {['floor', 'queue'].map(tab => (
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '24px', background: 'var(--glass)', padding: '5px', borderRadius: '18px', overflowX: 'auto', flexWrap: 'nowrap' }}>
+                    {[
+                        { id: 'floor',     label: '🪑 Floor' },
+                        { id: 'queue',     label: '📋 Queue' },
+                        { id: 'takeaway',  label: '📦 Takeaway' },
+                        { id: 'inventory', label: '🏷️ Inventory' },
+                    ].map(t => (
                         <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
+                            key={t.id}
+                            onClick={() => setActiveTab(t.id)}
                             style={{
-                                padding: '12px 32px',
-                                backgroundColor: activeTab === tab ? 'var(--accent-white)' : 'transparent',
-                                color: activeTab === tab ? 'var(--bg-dark)' : 'var(--text-muted)',
+                                padding: '10px 18px',
+                                backgroundColor: activeTab === t.id ? 'var(--accent-white)' : 'transparent',
+                                color: activeTab === t.id ? 'var(--bg-dark)' : 'var(--text-muted)',
                                 border: 'none',
-                                borderRadius: '16px',
-                                fontWeight: '600',
-                                fontSize: '0.95rem',
-                                letterSpacing: '-0.01em',
-                                textTransform: 'capitalize',
-                                transition: 'all 0.3s'
+                                borderRadius: '14px',
+                                fontWeight: '700',
+                                fontSize: '0.85rem',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.3s',
+                                cursor: 'pointer',
+                                flexShrink: 0,
                             }}
                         >
-                            {tab === 'floor' ? 'Floor View' : 'Orders Queue'}
+                            {t.label}
                         </button>
                     ))}
                 </div>
 
                 {activeTab === 'customize' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
                         {/* Menu Management */}
                         <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
                             <h2 style={{ marginBottom: '24px', color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '600', letterSpacing: '-0.02em' }}>Menu Management</h2>
@@ -312,15 +478,21 @@ const AdminPage = () => {
                                 {menuItems.map(item => (
                                     <div key={item.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem' }}>
                                         <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>{item.emoji} {item.name} <span style={{ color: 'var(--text-muted)' }}>(₹{item.price})</span></span>
-                                        <button
-                                            onClick={async () => {
-                                                if (confirm(`Delete ${item.name}?`)) {
-                                                    await supabase.from('menu_items').delete().eq('id', item.id);
-                                                    fetchMenuItems();
-                                                }
-                                            }}
-                                            style={{ backgroundColor: 'transparent', color: 'var(--text-faint)', border: 'none', padding: '8px', borderRadius: '8px' }}
-                                        >✕</button>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <button 
+                                                onClick={() => setMappingItem(item)}
+                                                style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '600' }}
+                                            >🥗 Recipe</button>
+                                            <button
+                                                onClick={async () => {
+                                                    if (confirm(`Delete ${item.name}?`)) {
+                                                        await supabase.from('menu_items').delete().eq('id', item.id);
+                                                        fetchMenuItems();
+                                                    }
+                                                }}
+                                                style={{ backgroundColor: 'transparent', color: 'var(--text-faint)', border: 'none', padding: '8px', borderRadius: '8px' }}
+                                            >✕</button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -353,7 +525,7 @@ const AdminPage = () => {
                                 <button type="submit" style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', letterSpacing: '-0.01em' }}>Add Table</button>
                             </form>
 
-                            <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px' }}>
+                             <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px' }}>
                                 {tables.map(table => (
                                     <div key={table.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem' }}>
                                         <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>Table {table.id} <span style={{ color: 'var(--text-muted)' }}>({table.seats} Seats)</span></span>
@@ -375,10 +547,53 @@ const AdminPage = () => {
                                     </div>
                                 ))}
                             </div>
+
+                            <button
+                                onClick={() => setQrTable({ id: 0, isTakeaway: true })}
+                                style={{
+                                    width: '100%',
+                                    marginTop: '24px',
+                                    padding: '16px',
+                                    backgroundColor: 'var(--glass)',
+                                    border: '1px solid var(--border-subtle)',
+                                    color: 'var(--text-main)',
+                                    fontWeight: '700',
+                                    borderRadius: '16px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Generate Takeaway QR
+                            </button>
+
+                            <button
+                                onClick={() => setShowBulkQR(true)}
+                                style={{
+                                    width: '100%',
+                                    marginTop: '12px',
+                                    padding: '18px',
+                                    backgroundColor: 'var(--accent-white)',
+                                    color: 'var(--bg-dark)',
+                                    fontWeight: '800',
+                                    borderRadius: '18px',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 8px 32px rgba(255,255,255,0.1)',
+                                    letterSpacing: '-0.01em'
+                                }}
+                            >
+                                🖨️ Bulk Print QR Cards
+                            </button>
                         </div>
                     </div>
-                ) : activeTab === 'floor' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
+                 ) : activeTab === 'inventory' ? (
+                    <InventoryManager 
+                        materials={materials} setMaterials={setMaterials}
+                        recipes={invRecipes} setRecipes={setInvRecipes}
+                        consumeLog={consumeLog} setConsumeLog={setConsumeLog}
+                        restockLog={restockLog} setRestockLog={setRestockLog}
+                        menuItems={menuItems}
+                    />
+                 ) : activeTab === 'floor' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
                         {tables.map(table => {
                             const tableOrder = orders.find(o => o.table_id === table.id && o.status !== 'paid');
                             const isOccupied = (tableOrder && tableOrder.status !== 'new') || !table.is_free;
@@ -428,9 +643,76 @@ const AdminPage = () => {
                             );
                         })}
                     </div>
+                ) : activeTab === 'takeaway' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {orders.filter(o => o.table_id === 0).map(order => {
+                            const meta = order.items.find(i => i.type === 'METADATA');
+                            const takeawayNo = meta ? `TK-${meta.takeaway_no}` : order.id;
+                            const displayItems = order.items.filter(i => i.type !== 'METADATA');
+                            
+                            return (
+                                <div key={order.id} className="glass" style={{ padding: '24px', borderRadius: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                                            <span style={{ fontSize: '1.4rem', fontWeight: '700', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>Order #{takeawayNo}</span>
+                                            <span style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '16px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: '700',
+                                                letterSpacing: '0.05em',
+                                                backgroundColor: order.status === 'new' ? 'var(--text-main)' : 'var(--glass-hover)',
+                                                color: order.status === 'new' ? 'var(--bg-dark)' : 'var(--text-main)',
+                                                border: order.status === 'new' ? 'none' : '1px solid var(--border-subtle)'
+                                            }}>
+                                                {order.status.toUpperCase()}
+                                            </span>
+                                        </div>
+                                        <p style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500' }}>
+                                            {displayItems.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                                        </p>
+                                    </div>
+                                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '24px' }}>
+                                        <p style={{ fontSize: '1.6rem', fontWeight: '700', marginBottom: '4px', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>₹{order.total}</p>
+                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '16px' }}>
+                                            {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </p>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            {order.status === 'new' ? (
+                                                <button
+                                                    onClick={() => acceptOrder(order.id, 0)}
+                                                    style={{ padding: '8px 20px', fontSize: '0.9rem', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', borderRadius: '16px', fontWeight: '700' }}
+                                                >
+                                                    Ready
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => completeTakeaway(order.id)}
+                                                    style={{ padding: '8px 20px', fontSize: '0.9rem', backgroundColor: '#4ade80', color: '#000', borderRadius: '16px', fontWeight: '700' }}
+                                                >
+                                                    Handover
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setInvoiceOrder(order); }}
+                                                style={{ padding: '8px 20px', fontSize: '0.9rem', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', borderRadius: '16px', fontWeight: '600' }}
+                                            >
+                                                Invoice
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {orders.filter(o => o.table_id === 0).length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '120px 0', color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', letterSpacing: '-0.01em' }}>
+                                No active takeaway orders
+                            </div>
+                        )}
+                    </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {orders.map(order => (
+                        {orders.filter(o => o.table_id !== 0).map(order => (
                             <div key={order.id} className="glass" style={{ padding: '24px', borderRadius: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
@@ -466,7 +748,7 @@ const AdminPage = () => {
                                 </div>
                             </div>
                         ))}
-                        {orders.length === 0 && (
+                        {orders.filter(o => o.table_id !== 0).length === 0 && (
                             <div style={{ textAlign: 'center', padding: '120px 0', color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', letterSpacing: '-0.01em' }}>
                                 No active orders in queue
                             </div>
@@ -493,12 +775,20 @@ const AdminPage = () => {
                     }}>
                         <div className="glass animate-fade" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center' }}>
-                                <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>Table {selectedTableOrder.table_id} Order</h2>
+                                <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
+                                    {(() => {
+                                        if (selectedTableOrder.table_id === 0) {
+                                            const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
+                                            return `Takeaway Order #${meta ? `TK-${meta.takeaway_no}` : selectedTableOrder.id}`;
+                                        }
+                                        return `Table ${selectedTableOrder.table_id} Order`;
+                                    })()}
+                                </h2>
                                 <button onClick={() => setSelectedTableOrder(null)} style={{ backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', fontSize: '1.2rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>✕</button>
                             </div>
 
                             <div style={{ marginBottom: '32px' }}>
-                                {selectedTableOrder.items.map((item, idx) => (
+                                {selectedTableOrder.items.filter(i => i.type !== 'METADATA').map((item, idx) => (
                                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '1.1rem', color: 'var(--text-main)' }}>
                                         <span style={{ fontWeight: '500' }}><span style={{ color: 'var(--text-muted)', marginRight: '12px' }}>{item.qty}x</span> {item.name}</span>
                                         <span style={{ color: 'var(--text-main)', fontWeight: '600' }}>₹{item.price * item.qty}</span>
@@ -535,124 +825,8 @@ const AdminPage = () => {
                         </div>
                     </div>
                 )}
-
-                {/* QR Modal */}
-                {qrTable && (
-                    <div className="animate-overlay" style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        backgroundColor: 'rgba(0,0,0,0.6)',
-                        backdropFilter: 'blur(12px)',
-                        WebkitBackdropFilter: 'blur(12px)',
-                        zIndex: 1000,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: '24px'
-                    }}>
-                        <div className="glass animate-fade" style={{
-                            width: '100%',
-                            maxWidth: '400px',
-                            borderRadius: '32px',
-                            padding: '40px',
-                            textAlign: 'center',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '32px',
-                            backgroundColor: 'var(--bg-surface)',
-                            boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                                <h2 style={{ fontSize: '1.6rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>Table {qrTable.id} QR</h2>
-                                <button onClick={() => setQrTable(null)} style={{ backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', fontSize: '1.2rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>✕</button>
-                            </div>
-
-                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', lineHeight: 0, boxShadow: '0 8px 32px rgba(255,255,255,0.1)' }}>
-                                <QRCodeSVG
-                                    value={`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}`}
-                                    size={220}
-                                    bgColor="#ffffff"
-                                    fgColor="#000000"
-                                    level="H"
-                                />
-                            </div>
-
-                            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
-                                <div className="glass" style={{ padding: '16px', borderRadius: '16px', fontSize: '0.85rem' }}>
-                                    <p style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                        <b>Pro Tip:</b> Use your IP <code>{detectedIp}</code> for mobile scanning.
-                                    </p>
-                                    <input 
-                                        type="text"
-                                        value={qrBaseUrl}
-                                        onChange={(e) => setQrBaseUrl(e.target.value)}
-                                        placeholder={`http://${detectedIp}:5175`}
-                                        style={{ width: '100%', padding: '10px 14px', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-subtle)', borderRadius: '10px', color: 'var(--text-main)', fontSize: '0.85rem' }}
-                                    />
-                                </div>
-
-                                <div>
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', fontWeight: '500' }}>Menu Link</p>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <input
-                                            readOnly
-                                            value={`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}`}
-                                            className="glass"
-                                            style={{ flex: 1, padding: '12px 16px', borderRadius: '12px', fontSize: '0.9rem', color: 'var(--text-main)', border: '1px solid var(--border-subtle)', outline: 'none' }}
-                                        />
-                                        <button
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}`);
-                                                alert('Link copied!');
-                                            }}
-                                            style={{ padding: '12px 20px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontSize: '0.9rem', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}
-                                        >
-                                            Copy
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => window.print()}
-                                style={{
-                                    width: '100%',
-                                    padding: '16px',
-                                    backgroundColor: 'var(--accent-white)',
-                                    color: 'var(--bg-dark)',
-                                    fontWeight: '700',
-                                    borderRadius: '16px',
-                                    letterSpacing: '-0.01em',
-                                    fontSize: '1rem',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Print QR Code
-                            </button>
-                        </div>
-                    </div>
-                )}
             </div>
 
-            {/* Real-time Order Popup */}
-            {newOrder && (
-                <OrderPopup
-                    order={newOrder}
-                    onAccept={acceptOrder}
-                    onDismiss={() => setNewOrder(null)}
-                />
-            )}
-
-            {/* Invoice Modal */}
-            <InvoiceModal
-                order={invoiceOrder}
-                isOpen={!!invoiceOrder}
-                onClose={() => setInvoiceOrder(null)}
-            />
             {/* QR Modal */}
             {qrTable && (
                 <div className="animate-overlay" style={{
@@ -664,7 +838,7 @@ const AdminPage = () => {
                     backgroundColor: 'rgba(0,0,0,0.6)',
                     backdropFilter: 'blur(12px)',
                     WebkitBackdropFilter: 'blur(12px)',
-                    zIndex: 1000,
+                    zIndex: 3000,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -672,7 +846,7 @@ const AdminPage = () => {
                 }}>
                     <div className="glass animate-fade" style={{
                         width: '100%',
-                        maxWidth: '400px',
+                        maxWidth: '430px',
                         borderRadius: '32px',
                         padding: '40px',
                         textAlign: 'center',
@@ -690,51 +864,152 @@ const AdminPage = () => {
 
                         <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', lineHeight: 0, boxShadow: '0 8px 32px rgba(255,255,255,0.1)' }}>
                             <QRCodeSVG
-                                value={`${window.location.origin}/menu?table=${qrTable.id}`}
+                                value={`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}`}
                                 size={220}
                                 bgColor="#ffffff"
                                 fgColor="#000000"
                                 level="H"
                             />
+                            {qrTable.isTakeaway && (
+                                <div style={{ marginTop: '16px', color: 'black', fontWeight: '700', fontSize: '1.1rem' }}>TAKEAWAY PARCELS</div>
+                            )}
                         </div>
 
-                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'left', marginBottom: '4px', fontWeight: '500' }}>Menu URL</p>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
+                            <div className="glass" style={{ padding: '16px', borderRadius: '16px', fontSize: '0.85rem' }}>
+                                <p style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                    <b>Pro Tip:</b> Use your IP <code>{detectedIp}</code> for mobile scanning.
+                                </p>
                                 <input
-                                    readOnly
-                                    value={`${window.location.origin}/menu?table=${qrTable.id}`}
-                                    className="glass"
-                                    style={{ flex: 1, padding: '12px 16px', borderRadius: '12px', fontSize: '0.9rem', color: 'var(--text-main)', border: '1px solid var(--border-subtle)', outline: 'none' }}
+                                    type="text"
+                                    value={qrBaseUrl}
+                                    onChange={(e) => setQrBaseUrl(e.target.value)}
+                                    placeholder={`http://${detectedIp}:5175`}
+                                    style={{ width: '100%', padding: '10px 14px', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-subtle)', borderRadius: '10px', color: 'var(--text-main)', fontSize: '0.85rem' }}
                                 />
-                                <button
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(`${window.location.origin}/menu?table=${qrTable.id}`);
-                                        alert('Link copied!');
-                                    }}
-                                    style={{ padding: '12px 20px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontSize: '0.9rem', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}
-                                >
-                                    Copy
-                                </button>
+                            </div>
+
+                            <div>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', fontWeight: '500' }}>Menu Link</p>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input
+                                        readOnly
+                                        value={`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}`}
+                                        className="glass"
+                                        style={{ flex: 1, padding: '12px 16px', borderRadius: '12px', fontSize: '0.9rem', color: 'var(--text-main)', border: '1px solid var(--border-subtle)', outline: 'none' }}
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}`);
+                                            alert('Link copied!');
+                                        }}
+                                        style={{ padding: '12px 20px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontSize: '0.9rem', borderRadius: '12px', fontWeight: '600', cursor: 'pointer' }}
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         <button
                             onClick={() => window.print()}
-                            style={{
-                                width: '100%',
-                                padding: '16px',
-                                backgroundColor: 'var(--accent-white)',
-                                color: 'var(--bg-dark)',
-                                fontWeight: '700',
-                                borderRadius: '16px',
-                                letterSpacing: '-0.01em',
-                                fontSize: '1rem',
-                                cursor: 'pointer'
-                            }}
+                            style={{ width: '100%', padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', letterSpacing: '-0.01em', fontSize: '1rem', cursor: 'pointer' }}
                         >
                             Print QR Code
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Real-time Order Popup */}
+            {newOrder && (
+                <OrderPopup
+                    order={newOrder}
+                    onAccept={acceptOrder}
+                    onDismiss={() => setNewOrder(null)}
+                />
+            )}
+
+            {/* Invoice Modal */}
+            <InvoiceModal
+                order={invoiceOrder}
+                isOpen={!!invoiceOrder}
+                onClose={() => setInvoiceOrder(null)}
+                onPaid={(method) => handleOrderPaid(invoiceOrder.id, method)}
+            />
+
+            {/* Bulk QR Modal */}
+            <BulkQRModal
+                tables={tables}
+                isOpen={showBulkQR}
+                onClose={() => setShowBulkQR(false)}
+                qrBaseUrl={qrBaseUrl}
+            />
+
+            {/* Recipe Mapping Modal */}
+            {mappingItem && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)' }}>
+                    <div className="glass" style={{ width: '100%', maxWidth: '480px', borderRadius: '24px', padding: '32px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: '800' }}>Recipe: {mappingItem.name}</h3>
+                            <button onClick={() => { setMappingItem(null); setNewMatId(''); setNewMatQty(''); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem' }}>✕</button>
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>Define raw materials used per serving of this item.</p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px', maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
+                            {(invRecipes.find(r => r.menuItemId === mappingItem.id)?.recipe || []).map((ing, i) => {
+                                const mat = materials.find(m => m.id === ing.materialId);
+                                return (
+                                    <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '16px', border: '1px solid var(--border-subtle)' }}>
+                                        <span style={{ flex: 1, fontWeight: '600' }}>{mat?.name || 'Unknown'}</span>
+                                        <span style={{ color: 'var(--text-muted)' }}>{ing.qty} {mat?.unit}</span>
+                                        <button
+                                            onClick={() => {
+                                                const current = invRecipes.find(r => r.menuItemId === mappingItem.id);
+                                                const newRecipe = current.recipe.filter((_, idx) => idx !== i);
+                                                setInvRecipes(prev => prev.map(r => r.menuItemId === mappingItem.id ? { ...r, recipe: newRecipe } : r));
+                                            }}
+                                            style={{ color: '#f87171', background: 'none', border: 'none' }}
+                                        >✕</button>
+                                    </div>
+                                );
+                            })}
+
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                <select
+                                    className="glass"
+                                    value={newMatId}
+                                    onChange={(e) => setNewMatId(e.target.value)}
+                                    style={{ flex: 1, padding: '12px', borderRadius: '12px', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                >
+                                    <option value="">Select Material</option>
+                                    {materials.map(m => <option key={m.id} value={m.id} style={{color:'black'}}>{m.name}</option>)}
+                                </select>
+                                <input
+                                    type="number"
+                                    placeholder="Qty"
+                                    value={newMatQty}
+                                    onChange={(e) => setNewMatQty(e.target.value)}
+                                    className="glass"
+                                    style={{ width: '80px', padding: '12px', borderRadius: '12px', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                />
+                                <button
+                                    onClick={() => {
+                                        if (!newMatId || !newMatQty) return;
+                                        const existing = invRecipes.find(r => r.menuItemId === mappingItem.id);
+                                        if (existing) {
+                                            setInvRecipes(prev => prev.map(r => r.menuItemId === mappingItem.id ? { ...r, recipe: [...r.recipe, { materialId: newMatId, qty: Number(newMatQty) }] } : r));
+                                        } else {
+                                            setInvRecipes(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name: mappingItem.name, menuItemId: mappingItem.id, recipe: [{ materialId: newMatId, qty: Number(newMatQty) }] }]);
+                                        }
+                                        setNewMatQty('');
+                                    }}
+                                    style={{ padding: '12px', background: 'var(--accent-white)', color: 'var(--bg-dark)', borderRadius: '12px', fontWeight: '700' }}
+                                >Add</button>
+                            </div>
+                        </div>
+
+                        <button onClick={() => setMappingItem(null)} style={{ width: '100%', padding: '16px', background: 'var(--glass)', border: '1px solid var(--border-subtle)', borderRadius: '16px', fontWeight: '700', color: 'var(--text-main)' }}>Done</button>
                     </div>
                 </div>
             )}

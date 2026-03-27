@@ -50,125 +50,120 @@ const LoginPage = () => {
             alignItems: 'center',
             justifyContent: 'center',
             background: 'var(--bg-dark)',
-            padding: '24px'
+            padding: '24px',
+            backgroundImage: 'radial-gradient(ellipse 80% 60% at 50% -20%, rgba(120,100,200,0.18) 0%, transparent 70%)',
         }}>
-            <div className="glass animate-fade" style={{
+            <div className="login-card animate-fade" style={{
                 width: '100%',
                 maxWidth: '420px',
                 padding: '48px',
-                borderRadius: '24px',
                 textAlign: 'center',
-                boxShadow: '0 24px 48px rgba(0, 0, 0, 0.4)'
             }}>
+                {/* Logo / Brand */}
                 <div style={{ marginBottom: '40px' }}>
+                    <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '18px',
+                        background: 'linear-gradient(135deg, #fff 0%, #c8c8e8 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.5rem',
+                        margin: '0 auto 20px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.4), inset 0 2px 0 rgba(255,255,255,1)',
+                    }}>🍜</div>
                     <h1 style={{
-                        fontSize: '2.5rem',
-                        fontWeight: '700',
-                        marginBottom: '8px',
-                        color: 'var(--text-main)',
-                        letterSpacing: '-0.04em'
+                        fontSize: '2.2rem',
+                        fontWeight: '800',
+                        marginBottom: '6px',
+                        letterSpacing: '-0.05em',
+                        background: 'linear-gradient(135deg, #fff 0%, #a0a0c0 100%)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
                     }}>
-                        daawat
+                        snackssmania
                     </h1>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', letterSpacing: '0.02em', fontWeight: '500' }}>Admin Portal Access</p>
+                    <p style={{ color: 'var(--text-faint)', fontSize: '0.88rem', letterSpacing: '0.04em', fontWeight: '600', textTransform: 'uppercase' }}>Admin Portal</p>
                 </div>
 
                 {error && (
                     <div style={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        color: 'var(--text-main)',
-                        padding: '16px',
+                        background: 'rgba(248,113,113,0.08)',
+                        color: '#fca5a5',
+                        padding: '14px 16px',
                         borderRadius: '12px',
                         marginBottom: '24px',
-                        fontSize: '0.9rem',
-                        border: '1px solid rgba(255, 255, 255, 0.2)'
+                        fontSize: '0.88rem',
+                        border: '1px solid rgba(248,113,113,0.2)',
+                        textAlign: 'left',
+                        lineHeight: '1.5',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
                     }}>
-                        {error}
+                        ⚠ {error}
                     </div>
                 )}
 
-                <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div style={{ textAlign: 'left' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', marginLeft: '4px', fontWeight: '500' }}>Email Address</label>
+                        <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '8px', marginLeft: '2px', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Email Address</label>
                         <input
                             type="email"
-                            placeholder="admin@daawat.com"
+                            placeholder="admin@snackssmania.com"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            style={{
-                                width: '100%',
-                                padding: '16px',
-                                borderRadius: '16px',
-                                backgroundColor: 'var(--glass)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-main)',
-                                outline: 'none',
-                                fontSize: '1rem',
-                                transition: 'all 0.3s'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = 'var(--text-muted)'}
-                            onBlur={(e) => e.target.style.borderColor = 'var(--border-subtle)'}
+                            style={{ width: '100%', padding: '15px 18px', fontSize: '0.95rem' }}
                         />
                     </div>
 
                     <div style={{ textAlign: 'left' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', marginLeft: '4px', fontWeight: '500' }}>Password</label>
+                        <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '8px', marginLeft: '2px', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Password</label>
                         <input
                             type="password"
                             placeholder="••••••••"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
-                            style={{
-                                width: '100%',
-                                padding: '16px',
-                                borderRadius: '16px',
-                                backgroundColor: 'var(--glass)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-main)',
-                                outline: 'none',
-                                fontSize: '1rem',
-                                transition: 'all 0.3s'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = 'var(--text-muted)'}
-                            onBlur={(e) => e.target.style.borderColor = 'var(--border-subtle)'}
+                            style={{ width: '100%', padding: '15px 18px', fontSize: '0.95rem' }}
                         />
                     </div>
 
                     <button
                         type="submit"
                         disabled={loading}
+                        className="btn-primary"
                         style={{
                             padding: '16px',
-                            borderRadius: '16px',
-                            backgroundColor: 'var(--accent-white)',
-                            color: 'var(--bg-dark)',
-                            fontWeight: '700',
+                            borderRadius: '18px',
+                            fontWeight: '800',
                             fontSize: '1rem',
-                            marginTop: '16px',
+                            marginTop: '8px',
                             cursor: loading ? 'not-allowed' : 'pointer',
                             opacity: loading ? 0.7 : 1,
-                            letterSpacing: '-0.01em'
+                            letterSpacing: '-0.01em',
                         }}
                     >
-                        {loading ? 'Processing...' : (isLogin ? 'Sign In' : 'Create Account')}
+                        {loading ? 'Signing In…' : (isLogin ? 'Sign In →' : 'Create Account →')}
                     </button>
                 </form>
 
-                <div style={{ marginTop: '32px' }}>
-                    <p style={{ color: 'var(--text-faint)', fontSize: '0.9rem' }}>
-                        {isLogin ? "Don't have an account?" : "Already have an account?"}
+                <div style={{ marginTop: '28px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <p style={{ color: 'var(--text-faint)', fontSize: '0.88rem' }}>
+                        {isLogin ? "Don't have an account?" : 'Already have an account?'}
                         <button
                             onClick={() => setIsLogin(!isLogin)}
                             style={{
-                                backgroundColor: 'transparent',
+                                background: 'transparent',
                                 border: 'none',
-                                color: 'var(--text-main)',
-                                fontWeight: '600',
+                                color: 'var(--text-muted)',
+                                fontWeight: '700',
                                 marginLeft: '8px',
                                 cursor: 'pointer',
-                                letterSpacing: '-0.01em'
+                                fontSize: '0.88rem',
+                                textDecoration: 'underline',
+                                textUnderlineOffset: '3px',
                             }}
                         >
                             {isLogin ? 'Sign Up' : 'Log In'}

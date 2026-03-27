@@ -4,57 +4,63 @@ const CartBar = ({ count, total, onPlaceOrder, loading }) => {
     if (count === 0) return null;
 
     return (
-        <div className="cart-bar animate-slide-up" style={{
-            position: 'fixed',
-            bottom: '32px',
-            left: '0',
-            right: '0',
-            margin: '0 auto',
-            width: 'calc(100% - 48px)',
-            maxWidth: '380px',
-            background: 'var(--bg-surface)',
-            borderRadius: '24px',
-            padding: '16px 20px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-subtle)',
-            zIndex: 1000,
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            boxSizing: 'border-box'
-        }}>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', letterSpacing: '0.05em' }}>
-                    {count} {count === 1 ? 'ITEM' : 'ITEMS'}
-                </span>
-                <span style={{ fontSize: '1.4rem', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
-                    ₹{total}
-                </span>
-            </div>
+        <div className="cart-footer animate-pop">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                    <span style={{
+                        fontSize: '0.72rem',
+                        color: 'var(--text-muted)',
+                        fontWeight: '700',
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                    }}>
+                        {count} {count === 1 ? 'item' : 'items'} in cart
+                    </span>
+                    <span style={{
+                        fontSize: '1.5rem',
+                        fontWeight: '800',
+                        letterSpacing: '-0.04em',
+                        background: 'linear-gradient(135deg, #fff 0%, #c8c8e8 100%)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                        lineHeight: 1,
+                    }}>
+                        ₹{total}
+                    </span>
+                </div>
 
-            <button
-                onClick={onPlaceOrder}
-                disabled={loading}
-                style={{
-                    backgroundColor: 'var(--accent-white)',
-                    color: 'var(--bg-dark)',
-                    padding: '12px 24px',
-                    borderRadius: '16px',
-                    fontWeight: '700',
-                    fontSize: '0.9rem',
-                    letterSpacing: '-0.01em',
-                    boxShadow: '0 4px 14px rgba(255, 255, 255, 0.1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    border: 'none',
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    opacity: loading ? 0.7 : 1,
-                }}
-            >
-                {loading ? 'PROCESSING...' : 'ORDER NOW →'}
-            </button>
+                <button
+                    onClick={onPlaceOrder}
+                    disabled={loading}
+                    className="btn-primary"
+                    style={{
+                        padding: '14px 28px',
+                        borderRadius: '20px',
+                        fontWeight: '800',
+                        fontSize: '0.95rem',
+                        letterSpacing: '-0.01em',
+                        flexShrink: 0,
+                        opacity: loading ? 0.65 : 1,
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                    }}
+                >
+                    {loading ? (
+                        <>
+                            <span
+                                className="animate-spin"
+                                style={{ display: 'inline-block', fontSize: '0.9rem' }}
+                            >⟳</span>
+                            Placing…
+                        </>
+                    ) : (
+                        <>Order Now →</>
+                    )}
+                </button>
+            </div>
         </div>
     );
 };

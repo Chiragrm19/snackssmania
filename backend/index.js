@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'daawat Backend is running!' });
+    res.json({ status: 'snackssmania Backend is running!' });
 });
 
 app.listen(PORT, () => {

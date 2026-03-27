@@ -47,12 +47,20 @@ const OrderPopup = ({ order, onAccept, onDismiss }) => {
                         alignItems: 'center',
                         marginBottom: '24px'
                     }}>
-                        <span style={{ fontSize: '1.5rem', fontWeight: '700', letterSpacing: '-0.02em' }}>Table {order.table_id}</span>
+                        <span style={{ fontSize: '1.5rem', fontWeight: '700', letterSpacing: '-0.02em' }}>
+                            {(() => {
+                                if (order.table_id === 0) {
+                                    const meta = order.items.find(i => i.type === 'METADATA');
+                                    return meta ? `Parcel #TK-${meta.takeaway_no}` : 'Parcel';
+                                }
+                                return `Table ${order.table_id}`;
+                            })()}
+                        </span>
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{new Date().toLocaleTimeString()}</span>
                     </div>
 
                     <div className="items-list" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {order.items.map((item, idx) => (
+                        {order.items.filter(i => i.type !== 'METADATA').map((item, idx) => (
                             <div key={idx} className={item.isNew ? "premium-border" : ""} style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
