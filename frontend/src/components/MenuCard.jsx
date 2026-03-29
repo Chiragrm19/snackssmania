@@ -21,18 +21,21 @@ const MenuCard = ({ item, cartQuantity, onAdd, onRemove }) => {
                     : undefined,
                 borderColor: isSelected ? `hsla(${hue}, 60%, 50%, 0.30)` : undefined,
                 borderTopColor: isSelected ? `hsla(${hue}, 60%, 60%, 0.55)` : undefined,
+                opacity: item.is_available === false ? 0.6 : 1,
+                filter: item.is_available === false ? 'grayscale(0.5)' : 'none',
                 boxShadow: isSelected
                     ? `0 6px 24px rgba(0,0,0,0.7), 0 0 30px hsla(${hue}, 60%, 50%, 0.12), inset 0 1px 0 hsla(${hue}, 80%, 70%, 0.2)`
                     : undefined,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '0',
+                pointerEvents: item.is_available === false ? 'none' : 'auto'
             }}
         >
             {/* Emoji / Image Section */}
             <div style={{
                 background: `linear-gradient(155deg, hsla(${hue}, 50%, 50%, ${isSelected ? 0.22 : 0.08}), rgba(0,0,0,0.3))`,
-                height: '120px',
+                height: '140px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -46,7 +49,7 @@ const MenuCard = ({ item, cartQuantity, onAdd, onRemove }) => {
                 marginBottom: '16px',
                 transition: 'background 0.3s ease',
             }}>
-                {/* Top shimmer line on emoji area */}
+                {/* Top shimmer line on area */}
                 <div style={{
                     position: 'absolute',
                     top: 0, left: 20, right: 20,
@@ -54,15 +57,37 @@ const MenuCard = ({ item, cartQuantity, onAdd, onRemove }) => {
                     background: `linear-gradient(90deg, transparent, hsla(${hue}, 80%, 70%, 0.5), transparent)`
                 }} />
 
-                <span style={{
-                    filter: isSelected ? `drop-shadow(0 4px 12px hsla(${hue}, 80%, 60%, 0.6))` : 'none',
-                    transition: 'filter 0.3s ease',
-                    transform: isSelected ? 'scale(1.08)' : 'scale(1)',
-                    display: 'inline-block',
-                    transition: 'all 0.3s cubic-bezier(0.19,1,0.22,1)',
-                }}>
-                    {item.emoji}
-                </span>
+                {item.image_url ? (
+                    <img 
+                        src={item.image_url} 
+                        alt={item.name} 
+                        style={{ 
+                            width: '100%', 
+                            height: '100%', 
+                            objectFit: 'cover',
+                            filter: isSelected ? 'brightness(1.1) contrast(1.1)' : 'none',
+                            transition: 'all 0.5s ease',
+                            transform: isSelected ? 'scale(1.1)' : 'scale(1)'
+                        }} 
+                    />
+                ) : (
+                    <span style={{
+                        filter: isSelected ? `drop-shadow(0 4px 12px hsla(${hue}, 80%, 60%, 0.6))` : 'none',
+                        transition: 'filter 0.3s ease',
+                        transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+                        display: 'inline-block',
+                        transition: 'all 0.3s cubic-bezier(0.19,1,0.22,1)',
+                    }}>
+                        🍽️
+                    </span>
+                )}
+
+                {/* Availability Overlay */}
+                {item.is_available === false && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }}>
+                         <span style={{ backgroundColor: 'rgba(0,0,0,0.8)', color: 'white', padding: '6px 14px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', letterSpacing: '0.05em' }}>UNAVAILABLE</span>
+                    </div>
+                )}
 
                 {/* SIGNATURE badge */}
                 {item.is_signature && (
@@ -177,20 +202,21 @@ const MenuCard = ({ item, cartQuantity, onAdd, onRemove }) => {
                     ) : (
                         <button
                             onClick={() => onAdd(item)}
+                            disabled={item.is_available === false}
                             style={{
                                 padding: '7px 18px',
-                                background: 'linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%)',
+                                background: item.is_available === false ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%)',
                                 border: '1px solid rgba(255,255,255,0.14)',
                                 borderTopColor: 'rgba(255,255,255,0.24)',
-                                color: 'var(--text-main)',
+                                color: item.is_available === false ? 'var(--text-faint)' : 'var(--text-main)',
                                 fontWeight: '700',
                                 fontSize: '0.88rem',
                                 borderRadius: '20px',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
+                                boxShadow: item.is_available === false ? 'none' : '0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
                                 letterSpacing: '-0.01em',
                             }}
                         >
-                            + Add
+                            {item.is_available === false ? 'Sold Out' : '+ Add'}
                         </button>
                     )}
                 </div>

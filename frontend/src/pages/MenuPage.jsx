@@ -4,15 +4,8 @@ import { supabase } from '../lib/supabase';
 import MenuCard from '../components/MenuCard';
 import CartBar from '../components/CartBar';
 
-const categories = [
-    { id: 'all', name: 'All' },
-    { id: 'coffee', name: 'Coffee' },
-    { id: 'food', name: 'Food' },
-    { id: 'dessert', name: 'Desserts' },
-    { id: 'cold', name: 'Cold' }
-];
-
 const MenuPage = () => {
+    const [categories, setCategories] = useState([{ id: 'all', name: 'All' }]);
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -23,7 +16,8 @@ const MenuPage = () => {
     const [displayOrderId, setDisplayOrderId] = useState(null);
     const [showThankYou, setShowThankYou] = useState(false);
     const [showReview, setShowReview] = useState(false);
-    const wasOccupied = useRef(false); // Track if the table was ever occupied this session
+    const [isTakeawayOrder, setIsTakeawayOrder] = useState(false); // New toggle for dine-in users
+    const wasOccupied = useRef(false);
 
     const location = useLocation();
     const tableId = new URLSearchParams(location.search).get('table') || '1';
@@ -100,22 +94,41 @@ const MenuPage = () => {
             }
         }, 5000); // Check every 5 seconds
 
+        // 3. Menu Polling (Keep items updated)
+        const menuInterval = setInterval(fetchMenu, 10000); // Check every 10 seconds
+
         return () => {
             supabase.removeChannel(channel);
             clearInterval(pollInterval);
+            clearInterval(menuInterval);
         };
     }, [tableId]);
 
     const fetchMenu = async () => {
         try {
-            const { data, error } = await supabase.from('menu_items').select('*');
-            if (error) throw error;
+            // Fetch items first so they show up even if categories fail
+            const { data: menuData, error: menuErr } = await supabase
+                .from('menu_items')
+                .select('*')
+                .order('name');
+            
+            if (menuErr) throw menuErr;
+            if (menuData) setItems(menuData);
 
-            if (data) {
-                setItems(data);
+            // Fetch categories separately
+            const { data: catData, error: catErr } = await supabase
+                .from('categories')
+                .select('*')
+                .order('display_order');
+            
+            if (!catErr && catData) {
+                setCategories([{ id: 'all', name: 'All' }, ...catData]);
+            } else {
+                console.warn('Categories not found, using default All.');
+                setCategories([{ id: 'all', name: 'All' }]);
             }
         } catch (err) {
-            console.error('Error fetching menu:', err.message);
+            console.error('Error fetching data:', err.message);
         } finally {
             setLoading(false);
         }
@@ -150,10 +163,13 @@ const MenuPage = () => {
             const cartTotal = cartItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
             // Check for existing active order for this table
+            // For takeaway, effective ID is 0, for dine-in it is the table number
+            const effectiveTableId = isTakeawayOrder ? 0 : parseInt(tableId);
+
             const { data: existingOrder, error: fetchError } = await supabase
                 .from('orders')
                 .select('*')
-                .eq('table_id', parseInt(tableId))
+                .eq('table_id', effectiveTableId)
                 .neq('status', 'paid')
                 .maybeSingle();
 
@@ -186,7 +202,7 @@ const MenuPage = () => {
                     .update({
                         items: updatedItems,
                         total: newTotal,
-                        status: 'new' // reset to new to alert admin
+                        status: 'new', // reset to new to alert admin
                     })
                     .eq('id', existingOrder.id);
 
@@ -201,8 +217,7 @@ const MenuPage = () => {
                     isNew: true 
                 }));
 
-                // For takeaway, calculate a separate number for today
-                if (isTakeaway) {
+                if (effectiveTableId === 0) {
                     const today = new Date().toISOString().split('T')[0];
                     const { count } = await supabase
                         .from('orders')
@@ -216,7 +231,7 @@ const MenuPage = () => {
                 }
 
                 const { data: newOrderData, error: insertError } = await supabase.from('orders').insert({
-                    table_id: parseInt(tableId),
+                    table_id: effectiveTableId,
                     items: finalItems,
                     total: cartTotal,
                     status: 'new'
@@ -225,11 +240,12 @@ const MenuPage = () => {
                 if (insertError) throw insertError;
                 if (newOrderData) {
                     setLastOrderId(newOrderData.id);
-                    setDisplayOrderId(newOrderData.id);
                     // If metadata exists, extract it for display
                     const meta = newOrderData.items.find(i => i.type === 'METADATA');
                     if (meta) {
                         setDisplayOrderId(`TK-${meta.takeaway_no}`);
+                    } else {
+                        setDisplayOrderId(newOrderData.id);
                     }
                 }
             }
@@ -334,23 +350,67 @@ const MenuPage = () => {
 
             <div style={{
                 display: 'flex',
-                gap: '8px',
+                gap: '16px',
                 overflowX: 'auto',
-                paddingBottom: '20px',
-                marginBottom: '8px',
+                padding: '8px 4px 28px 4px',
+                marginBottom: '16px',
                 msOverflowStyle: 'none',
                 scrollbarWidth: 'none',
-                WebkitOverflowScrolling: 'touch'
+                WebkitOverflowScrolling: 'touch',
             }}>
-                {categories.map(cat => (
-                    <button
-                        key={cat.id}
-                        onClick={() => setActiveCategory(cat.id)}
-                        className={`cat-pill ${activeCategory === cat.id ? 'active' : ''}`}
-                    >
-                        {cat.name}
-                    </button>
-                ))}
+                {categories.map(cat => {
+                    const isActive = activeCategory === (cat.id === 'all' ? 'all' : cat.name);
+                    return (
+                        <button
+                            key={cat.id}
+                            onClick={() => setActiveCategory(cat.id === 'all' ? 'all' : cat.name)}
+                            className={`cat-card ${isActive ? 'active' : ''}`}
+                            style={{
+                                flexShrink: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '10px',
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                outline: 'none',
+                                transition: 'all 0.4s cubic-bezier(0.2, 1, 0.3, 1)',
+                                transform: isActive ? 'scale(1.05)' : 'scale(1)',
+                                width: '80px'
+                            }}
+                        >
+                            <div className="cat-image-container" style={{
+                                width: '72px',
+                                height: '72px',
+                                borderRadius: '22px',
+                                background: isActive ? 'linear-gradient(135deg, #fff 0%, #eef0ff 100%)' : 'var(--glass)',
+                                border: isActive ? '2px solid var(--accent-purple)' : '1px solid var(--border-subtle)',
+                                boxShadow: isActive ? '0 12px 24px rgba(167,139,250,0.3)' : 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                overflow: 'hidden',
+                                transition: 'all 0.3s'
+                            }}>
+                                {cat.image_url ? (
+                                    <img src={cat.image_url} alt={cat.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    <span style={{ fontSize: '1.6rem', filter: isActive ? 'none' : 'grayscale(0.5)' }}>{cat.id === 'all' ? '🏠' : '🍽️'}</span>
+                                )}
+                            </div>
+                            <span className="cat-name-text" style={{ 
+                                fontSize: '0.78rem', 
+                                fontWeight: '800', 
+                                color: isActive ? 'var(--text-main)' : 'var(--text-muted)',
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase'
+                            }}>
+                                {cat.name}
+                            </span>
+                        </button>
+                    );
+                })}
             </div>
 
             {loading ? (
@@ -461,6 +521,41 @@ const MenuPage = () => {
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {!isTakeaway && (
+                                        <div 
+                                            onClick={() => setIsTakeawayOrder(!isTakeawayOrder)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '12px',
+                                                padding: '16px',
+                                                backgroundColor: 'rgba(255,255,255,0.03)',
+                                                borderRadius: '20px',
+                                                border: '1px solid var(--border-subtle)',
+                                                cursor: 'pointer',
+                                                marginBottom: '8px'
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: '24px',
+                                                height: '24px',
+                                                borderRadius: '6px',
+                                                border: '2px solid var(--accent-purple)',
+                                                backgroundColor: isTakeawayOrder ? 'var(--accent-purple)' : 'transparent',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                transition: 'all 0.2s'
+                                            }}>
+                                                {isTakeawayOrder && <span style={{ color: 'white', fontSize: '14px' }}>✓</span>}
+                                            </div>
+                                            <div>
+                                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-main)' }}>Pack as Takeaway?</p>
+                                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>We will pack this for you to carry.</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <button
                                         onClick={() => setShowReview(false)}
                                         style={{
