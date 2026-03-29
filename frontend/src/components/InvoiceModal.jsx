@@ -129,13 +129,13 @@ const InvoiceModal = ({ order, isOpen, onClose, onPaid }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px', borderBottom: '1px solid #eaeaea', paddingBottom: '24px' }}>
                     <div>
                         <div className="no-print" style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: '500', marginBottom: '4px' }}>
-                            {order.table_id === 0 ? 'TAKEAWAY ORDER' : `TABLE ${order.table_id}`}
+                            {order.table_id === 0 ? 'PARCEL ORDER' : `TABLE ${order.table_id}`}
                         </div>
                         <h2 style={{ fontSize: '1.5rem', fontWeight: '700', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
                             {(() => {
                                 if (order.table_id === 0) {
                                     const meta = order.items.find(i => i.type === 'METADATA');
-                                    return meta ? `Order #TK-${meta.takeaway_no}` : `Order #${order.id}`;
+                                    return meta ? `Order #P-${meta.takeaway_no}` : `Order #${order.id}`;
                                 }
                                 return `Table ${order.table_id}`;
                             })()}
@@ -203,9 +203,12 @@ const InvoiceModal = ({ order, isOpen, onClose, onPaid }) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {order.items.filter(i => i.type !== 'METADATA').map((item, idx) => (
+                        {order.items.filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA').map((item, idx) => (
                             <tr key={idx} style={{ borderBottom: '1px solid #eaeaea' }}>
-                                <td style={{ padding: '16px 0', fontWeight: '500' }}>{item.name}</td>
+                                <td style={{ padding: '16px 0', fontWeight: '500' }}>
+                                    {item.name}
+                                    {item.isParcel && <span style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic', marginLeft: '6px' }}>(Parcel)</span>}
+                                </td>
                                 <td style={{ textAlign: 'center', padding: '16px 0', color: '#666' }}>{item.qty}</td>
                                 <td style={{ textAlign: 'right', padding: '16px 0', color: '#666' }}>₹{item.price}</td>
                                 <td style={{ textAlign: 'right', padding: '16px 0', fontWeight: '600' }}>₹{item.price * item.qty}</td>

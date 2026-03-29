@@ -38,43 +38,48 @@ const BulkQRModal = ({ tables, isOpen, onClose, qrBaseUrl }) => {
             }}>
                 {tables.map(table => (
                     <div key={table.id} className="qr-card-premium" style={{
-                        aspectRatio: '2/3',
-                        background: '#111',
-                        border: '2px solid #D4AF37', // Gold
-                        borderRadius: '2px',
-                        padding: '40px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
                         position: 'relative',
+                        aspectRatio: '2/3',
                         boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-                        color: '#D4AF37',
-                        textAlign: 'center',
-                        fontFamily: "'Playfair Display', serif"
+                        overflow: 'hidden',
+                        backgroundColor: 'black'
                     }}>
-                        {/* Decorative Corners */}
-                        <div style={{ position: 'absolute', top: '10px', left: '10px', width: '30px', height: '30px', borderTop: '2px solid #D4AF37', borderLeft: '2px solid #D4AF37' }}></div>
-                        <div style={{ position: 'absolute', top: '10px', right: '10px', width: '30px', height: '30px', borderTop: '2px solid #D4AF37', borderRight: '2px solid #D4AF37' }}></div>
-                        <div style={{ position: 'absolute', bottom: '10px', left: '10px', width: '30px', height: '30px', borderBottom: '2px solid #D4AF37', borderLeft: '2px solid #D4AF37' }}></div>
-                        <div style={{ position: 'absolute', bottom: '10px', right: '10px', width: '30px', height: '30px', borderBottom: '2px solid #D4AF37', borderRight: '2px solid #D4AF37' }}></div>
+                        <img src="/qr-template.jpg" style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'fill',
+                            zIndex: 0
+                        }} alt="template background" />
 
-                        <div style={{ fontSize: '1.8rem', fontWeight: '900', fontStyle: 'italic', letterSpacing: '2px' }}>SnackssMania</div>
-                        
-                        <div style={{ background: '#fff', padding: '15px', borderRadius: '4px', boxShadow: '0 0 20px rgba(212,175,55,0.3)' }}>
+                        <div style={{
+                            position: 'absolute',
+                            top: '23.5%',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: '61%',
+                            height: '40.66%',
+                            backgroundColor: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '12px',
+                            zIndex: 1
+                        }}>
                             <QRCodeSVG
                                 value={`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${table.id}`}
-                                size={180}
+                                size={256}
+                                style={{ width: '100%', height: '100%' }}
                                 level="H"
                                 fgColor="#000000"
+                                includeMargin={false}
                             />
-                        </div>
-
-                        <div>
-                            <div style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '8px' }}>Scan to Order</div>
-                            <div style={{ fontSize: '1.8rem', fontWeight: '900', borderTop: '1px solid #D4AF37', borderBottom: '1px solid #D4AF37', padding: '8px 20px', margin: '8px 0' }}>Table {table.id}</div>
-                            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '12px' }}>www.snackssmania.com</div>
-                            <div style={{ fontSize: '0.7rem', opacity: 0.6, marginTop: '20px' }}>Powered by Silovation Technologies</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#000', marginTop: '6px', textAlign: 'center', fontFamily: 'sans-serif' }}>
+                                {table.id === 0 ? 'PARCEL' : `TABLE ${table.id}`}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -86,7 +91,6 @@ const BulkQRModal = ({ tables, isOpen, onClose, qrBaseUrl }) => {
                     body { background: white !important; padding: 0 !important; margin: 0 !important; visibility: hidden !important; }
                     #bulk-qr-container, #bulk-qr-container * { 
                         visibility: visible !important; 
-                        display: grid !important;
                     }
                     #bulk-qr-container { 
                         position: absolute !important;
@@ -96,16 +100,22 @@ const BulkQRModal = ({ tables, isOpen, onClose, qrBaseUrl }) => {
                         padding: 0 !important;
                         margin: 0 !important;
                         overflow: visible !important;
+                        display: flex !important;
+                        flex-wrap: wrap !important;
+                        justify-content: center !important;
+                        gap: 10mm !important;
                     }
                     .qr-card-premium { 
                         page-break-inside: avoid !important;
-                        margin: 10mm auto !important;
+                        margin: 0 !important;
                         width: 90mm !important;
-                        height: 140mm !important;
+                        height: 135mm !important;
                         box-shadow: none !important;
-                        border: 2px solid #D4AF37 !important;
-                        print-color-adjust: exact;
-                        -webkit-print-color-adjust: exact;
+                        border: none !important;
+                        print-color-adjust: exact !important;
+                        -webkit-print-color-adjust: exact !important;
+                        display: block !important;
+                        position: relative !important;
                     }
                 }
             `}</style>

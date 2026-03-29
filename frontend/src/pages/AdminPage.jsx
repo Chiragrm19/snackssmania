@@ -31,6 +31,7 @@ const AdminPage = () => {
     const [manualCategory, setManualCategory] = useState('all');
     const [isAddingItem, setIsAddingItem] = useState(false);
     const [addItemSearch, setAddItemSearch] = useState('');
+    const [isAddNewAsParcel, setIsAddNewAsParcel] = useState(false);
     const [customerContacts, setCustomerContacts] = useState([]);
     const [customerSearch, setCustomerSearch] = useState('');
     const [payPhone, setPayPhone] = useState('');
@@ -297,7 +298,8 @@ const AdminPage = () => {
                 // Merge with existing
                 const updatedItems = [...orderToUpdate.items];
                 items.forEach(newItem => {
-                    const idx = updatedItems.findIndex(i => i.id === newItem.id);
+                    // Match by ID AND the isParcel flag
+                    const idx = updatedItems.findIndex(i => i.id === newItem.id && !!i.isParcel === !!newItem.isParcel);
                     if (idx > -1) updatedItems[idx].qty += newItem.qty;
                     else updatedItems.push({ ...newItem, isNew: false, qty: newItem.qty });
                 });
@@ -372,6 +374,23 @@ const AdminPage = () => {
         }
     };
 
+    const rejectOrder = async (orderId) => {
+        try {
+            const { error: orderError } = await supabase
+                .from('orders')
+                .update({ status: 'rejected' })
+                .eq('id', orderId);
+
+            if (orderError) throw orderError;
+            
+            setNewOrder(null);
+            fetchOrders();
+        } catch (err) {
+            console.error('Error rejecting order:', err.message);
+            alert('Failed to dismiss order: ' + err.message);
+        }
+    };
+
     const acceptOrder = async (orderId, tableId) => {
         try {
             const targetOrder = orders.find(o => o.id === orderId);
@@ -418,7 +437,7 @@ const AdminPage = () => {
             if (!order) return;
 
             let newItems = [...order.items];
-            const itemIdx = newItems.findIndex(i => i.name === itemName && i.type !== 'METADATA');
+            const itemIdx = newItems.findIndex(i => i.name === itemName && !!i.isParcel === !!isParcel && i.type !== 'METADATA');
             
             if (itemIdx === -1) return;
 
@@ -674,7 +693,7 @@ const AdminPage = () => {
                     {[
                         { id: 'floor',     label: '🪑 Floor' },
                         { id: 'queue',     label: '📋 Queue' },
-                        { id: 'takeaway',  label: '📦 Takeaway' },
+                        { id: 'takeaway',  label: '📦 Parcel' },
                         { id: 'inventory', label: '🏷️ Inventory' },
                         { id: 'categories', label: '📂 Categories' },
                         { id: 'customers', label: '👥 Customers' },
@@ -753,15 +772,43 @@ const AdminPage = () => {
                                 </button>
                             </form>
 
+                            <input 
+                                type="text" 
+                                placeholder="🔍 Search menu items..." 
+                                value={menuSearch}
+                                onChange={(e) => setMenuSearch(e.target.value)}
+                                className="glass"
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 16px',
+                                    borderRadius: '16px',
+                                    color: 'var(--text-main)',
+                                    outline: 'none',
+                                    marginBottom: '16px'
+                                }}
+                            />
+
                             <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px' }}>
-                                {menuItems.filter(item => item.name.toLowerCase().includes(menuSearch.toLowerCase())).slice(0, 10).map(item => (
+                                {menuItems.filter(item => item.name.toLowerCase().includes(menuSearch.toLowerCase())).map(item => (
                                     <div key={item.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            {item.image_url && <img src={item.image_url} alt={item.name} style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover' }} />}
-                                            <span style={{ fontWeight: '500' }}>{item.name}</span>
+                                            {item.image_url && <img src={item.image_url} alt={item.name} style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', opacity: item.is_available === false ? 0.4 : 1 }} />}
+                                            <span style={{ fontWeight: '600', color: item.is_available === false ? 'var(--text-muted)' : 'var(--text-main)', textDecoration: item.is_available === false ? 'line-through' : 'none' }}>
+                                                {item.name}
+                                            </span>
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                            <button onClick={() => setEditItem(item)} style={{ color: 'var(--accent-purple)', background: 'none', border: 'none', fontSize: '0.8rem', fontWeight: '700' }}>Edit</button>
+                                            <button 
+                                                onClick={async () => {
+                                                    await supabase.from('menu_items').update({ is_available: item.is_available === false ? true : false }).eq('id', item.id);
+                                                    fetchMenuItems();
+                                                }}
+                                                style={{ color: item.is_available === false ? '#10b981' : '#f59e0b', background: 'var(--glass)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+                                            >
+                                                {item.is_available === false ? 'Mark Available' : 'Mark Unavailable'}
+                                            </button>
+                                            <button onClick={() => setMappingItem(item)} style={{ color: '#60a5fa', background: 'var(--glass)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}>Recipe</button>
+                                            <button onClick={() => setEditItem(item)} style={{ color: 'var(--accent-purple)', background: 'var(--glass)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}>Edit</button>
                                             <button
                                                 onClick={async () => {
                                                     if (confirm(`Delete ${item.name}?`)) {
@@ -769,7 +816,7 @@ const AdminPage = () => {
                                                         fetchMenuItems();
                                                     }
                                                 }}
-                                                style={{ color: 'var(--text-faint)', background: 'none', border: 'none', padding: '8px', cursor: 'pointer' }}
+                                                style={{ color: '#f87171', background: 'none', border: 'none', padding: '6px', cursor: 'pointer', fontSize: '1rem' }}
                                             >✕</button>
                                         </div>
                                     </div>
@@ -841,7 +888,7 @@ const AdminPage = () => {
                                     cursor: 'pointer'
                                 }}
                             >
-                                📋 + Generate Takeaway QR (Table 0)
+                                📋 + Generate Parcel QR (Table 0)
                             </button>
 
                             <button
@@ -1064,18 +1111,18 @@ const AdminPage = () => {
                                 marginBottom: '8px'
                             }}
                         >
-                            📦 + Place Manual Takeaway Order
+                            📦 + Place Manual Parcel Order
                         </button>
                         {orders.filter(o => o.table_id === 0).map(order => {
                             const meta = order.items.find(i => i.type === 'METADATA');
-                            const takeawayNo = meta ? `TK-${meta.takeaway_no}` : order.id;
+                            const parcelNo = meta ? `P-${meta.takeaway_no}` : order.id;
                             const displayItems = order.items.filter(i => i.type !== 'METADATA');
                             
                             return (
                                 <div key={order.id} className="glass" style={{ padding: '24px', borderRadius: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
-                                            <span style={{ fontSize: '1.4rem', fontWeight: '700', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>Order #{takeawayNo}</span>
+                                            <span style={{ fontSize: '1.4rem', fontWeight: '700', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>Order #{parcelNo}</span>
                                             <span style={{
                                                 padding: '4px 12px',
                                                 borderRadius: '16px',
@@ -1127,7 +1174,7 @@ const AdminPage = () => {
                         })}
                         {orders.filter(o => o.table_id === 0).length === 0 && (
                             <div style={{ textAlign: 'center', padding: '120px 0', color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', letterSpacing: '-0.01em' }}>
-                                No active takeaway orders
+                                No active parcel orders
                             </div>
                         )}
                     </div>
@@ -1200,7 +1247,7 @@ const AdminPage = () => {
                                     {(() => {
                                         if (selectedTableOrder.table_id === 0) {
                                             const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
-                                            return `Takeaway Order #${meta ? `TK-${meta.takeaway_no}` : selectedTableOrder.id}`;
+                                            return `Parcel Order #${meta ? `P-${meta.takeaway_no}` : selectedTableOrder.id}`;
                                         }
                                         return `Table ${selectedTableOrder.table_id} Order`;
                                     })()}
@@ -1209,29 +1256,50 @@ const AdminPage = () => {
                             </div>
 
                             <div style={{ marginBottom: '32px' }}>
-                                {selectedTableOrder.items.filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA').map((item, idx) => (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '1.1rem', color: 'var(--text-main)', alignItems: 'center' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--glass)', padding: '4px 8px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
-                                                <button 
-                                                    onClick={() => handleUpdateItemQty(selectedTableOrder.id, item.name, -1)}
-                                                    style={{ background: 'none', border: 'none', color: 'var(--text-main)', fontSize: '1.2rem', cursor: 'pointer', padding: '0 4px', fontWeight: 'bold' }}
-                                                >
-                                                    -
-                                                </button>
-                                                <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: '700', fontSize: '0.95rem' }}>{item.qty}</span>
-                                                <button 
-                                                    onClick={() => handleUpdateItemQty(selectedTableOrder.id, item.name, 1)}
-                                                    style={{ background: 'none', border: 'none', color: 'var(--text-main)', fontSize: '1.2rem', cursor: 'pointer', padding: '0 4px', fontWeight: 'bold' }}
-                                                >
-                                                    +
-                                                </button>
+                                {(() => {
+                                    const validItems = selectedTableOrder.items.filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA');
+                                    const dineInItems = validItems.filter(i => !i.isParcel);
+                                    const parcelItems = validItems.filter(i => i.isParcel);
+
+                                    const renderItem = (item, idxKey) => (
+                                        <div key={idxKey} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '1.1rem', color: 'var(--text-main)', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--glass)', padding: '4px 8px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+                                                    <button 
+                                                        onClick={() => handleUpdateItemQty(selectedTableOrder.id, item.name, -1, item.isParcel)}
+                                                        style={{ background: 'none', border: 'none', color: 'var(--text-main)', fontSize: '1.2rem', cursor: 'pointer', padding: '0 4px', fontWeight: 'bold' }}
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: '700', fontSize: '0.95rem' }}>{item.qty}</span>
+                                                    <button 
+                                                        onClick={() => handleUpdateItemQty(selectedTableOrder.id, item.name, 1, item.isParcel)}
+                                                        style={{ background: 'none', border: 'none', color: 'var(--text-main)', fontSize: '1.2rem', cursor: 'pointer', padding: '0 4px', fontWeight: 'bold' }}
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                                <span style={{ fontWeight: '500' }}>{item.name}</span>
                                             </div>
-                                            <span style={{ fontWeight: '500' }}>{item.name}</span>
+                                            <span style={{ color: 'var(--text-main)', fontWeight: '600' }}>₹{item.price * item.qty}</span>
                                         </div>
-                                        <span style={{ color: 'var(--text-main)', fontWeight: '600' }}>₹{item.price * item.qty}</span>
-                                    </div>
-                                ))}
+                                    );
+
+                                    return (
+                                        <>
+                                            {dineInItems.map((item, i) => renderItem(item, `dine-${i}`))}
+                                            {parcelItems.length > 0 && (
+                                                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                                                    <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ fontSize: '1.2rem' }}>📦</span>
+                                                        <span style={{ fontSize: '0.85rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>Parcel Items</span>
+                                                    </div>
+                                                    {parcelItems.map((item, i) => renderItem(item, `parcel-${i}`))}
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', marginTop: '20px', display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1.6rem', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
                                     <span style={{ color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', alignSelf: 'center' }}>Total</span>
                                     <span>₹{selectedTableOrder.total}</span>
@@ -1257,7 +1325,7 @@ const AdminPage = () => {
                                         </button>
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                                 <input 
                                                     type="text" 
                                                     placeholder="Search item..." 
@@ -1267,7 +1335,11 @@ const AdminPage = () => {
                                                     className="glass"
                                                     style={{ flex: 1, padding: '10px 16px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none', fontSize: '0.9rem' }}
                                                 />
-                                                <button onClick={() => { setIsAddingItem(false); setAddItemSearch(''); }} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '40px', borderRadius: '12px', color: 'white' }}>✕</button>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', fontSize: '0.85rem', cursor: 'pointer', backgroundColor: 'rgba(255,255,255,0.05)', padding: '10px 12px', borderRadius: '12px', border: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>
+                                                    <input type="checkbox" checked={isAddNewAsParcel} onChange={(e) => setIsAddNewAsParcel(e.target.checked)} style={{ cursor: 'pointer' }} />
+                                                    Add as Parcel
+                                                </label>
+                                                <button onClick={() => { setIsAddingItem(false); setAddItemSearch(''); setIsAddNewAsParcel(false); }} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '40px', borderRadius: '12px', color: 'white' }}>✕</button>
                                             </div>
                                             {addItemSearch && (
                                                 <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
@@ -1278,9 +1350,10 @@ const AdminPage = () => {
                                                             <button 
                                                                 key={item.id}
                                                                 onClick={async () => {
-                                                                    await placeManualOrder(selectedTableOrder.table_id, [{ ...item, qty: 1 }]);
+                                                                    await placeManualOrder(selectedTableOrder.table_id, [{ ...item, qty: 1, isParcel: isAddNewAsParcel }]);
                                                                     setIsAddingItem(false);
                                                                     setAddItemSearch('');
+                                                                    setIsAddNewAsParcel(false);
                                                                     // The real-time subscription or fetchInitialData inside placeManualOrder will update selectedTableOrder via orders state
                                                                     // But since selectedTableOrder is local state, we should find it again
                                                                     const updatedOrders = await supabase.from('orders').select('*');
@@ -1431,57 +1504,54 @@ const AdminPage = () => {
 
                         {/* Designed QR Card for Printing */}
                         <div id="qr-to-print" style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            alignItems: 'center', 
-                            background: 'white', 
-                            padding: '40px', 
-                            borderRadius: '32px', 
-                            textAlign: 'center',
+                            position: 'relative',
                             width: '320px',
-                            minHeight: '450px',
-                            boxShadow: '0 20px 50px rgba(0,0,0,0.1)',
-                            border: '1px solid #eee'
+                            height: '480px',
+                            boxShadow: '0 20px 50px rgba(0,0,0,0.2)',
+                            overflow: 'hidden',
+                            backgroundColor: 'black'
                         }}>
-                            <h1 style={{ color: '#000', margin: '0 0 8px 0', fontSize: '1.8rem', fontWeight: '900', letterSpacing: '-0.04em' }}>snackssmania</h1>
-                            <div style={{ height: '4px', width: '30px', background: '#000', marginBottom: '24px', borderRadius: '2px' }}></div>
-                            
-                            <p style={{ color: '#666', fontSize: '0.85rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
-                                {qrTable.isTakeaway ? 'TAKEAWAY PARCEL' : `TABLE ${qrTable.id}`}
-                            </p>
+                            <img src="/qr-template.jpg" style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'fill',
+                                zIndex: 0
+                            }} alt="template background" />
 
-                            <div style={{ padding: '20px', background: '#f8f8f8', borderRadius: '24px', marginBottom: '24px' }}>
+                            <div style={{
+                                position: 'absolute',
+                                top: '23.5%',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                width: '61%',
+                                height: '40.66%',
+                                backgroundColor: '#ffffff',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '12px',
+                                zIndex: 1
+                            }}>
                                 <QRCodeSVG
                                     value={`${qrBaseUrl.replace(/\/$/, '')}/menu?table=${qrTable.id}&tk=${qrTable.isTakeaway ? '1' : '0'}`}
-                                    size={200}
-                                    bgColor="#f8f8f8"
+                                    size={256}
+                                    style={{ width: '100%', height: '100%' }}
+                                    bgColor="#ffffff"
                                     fgColor="#000000"
                                     level="H"
+                                    includeMargin={false}
                                 />
-                            </div>
-
-                            <p style={{ color: '#000', fontSize: '1.1rem', fontWeight: '700', marginBottom: '4px' }}>Scan to View Menu</p>
-                            <p style={{ color: '#888', fontSize: '0.75rem', fontWeight: '500' }}>Order directly from your phone</p>
-                            
-                            <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px dashed #ddd', width: '100%' }}>
-                                <p style={{ color: '#aaa', fontSize: '0.65rem' }}>WiFi: Free House-Guest</p>
+                                <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#000', marginTop: '6px', textAlign: 'center', fontFamily: 'sans-serif' }}>
+                                    {qrTable.isTakeaway ? 'PARCEL' : `TABLE ${qrTable.id}`}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="no-print" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'left' }}>
-                            <div className="glass" style={{ padding: '16px', borderRadius: '16px', fontSize: '0.85rem' }}>
-                                <p style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                    <b>Pro Tip:</b> Use your IP <code>{detectedIp}</code> for mobile scanning.
-                                </p>
-                                <input
-                                    type="text"
-                                    value={qrBaseUrl}
-                                    onChange={(e) => setQrBaseUrl(e.target.value)}
-                                    placeholder={`http://${detectedIp}:5175`}
-                                    style={{ width: '100%', padding: '10px 14px', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-subtle)', borderRadius: '10px', color: 'var(--text-main)', fontSize: '0.85rem' }}
-                                />
-                            </div>
-                        </div>
+                        {/* Mobile link input removed per request */}
 
                         <button
                             className="no-print"
@@ -1496,11 +1566,14 @@ const AdminPage = () => {
                                             left: 0 !important; 
                                             top: 0 !important; 
                                             margin: 0 !important;
-                                            padding: 40px !important;
+                                            padding: 0 !important;
                                             width: 100mm !important;
                                             height: 150mm !important;
                                             box-shadow: none !important;
                                             border: none !important;
+                                            print-color-adjust: exact !important;
+                                            -webkit-print-color-adjust: exact !important;
+                                            display: block !important;
                                         }
                                     }
                                 `;
@@ -1521,7 +1594,7 @@ const AdminPage = () => {
                 <OrderPopup
                     order={newOrder}
                     onAccept={acceptOrder}
-                    onDismiss={() => setNewOrder(null)}
+                    onDismiss={() => rejectOrder(newOrder.id)}
                 />
             )}
 

@@ -16,7 +16,7 @@ const MenuPage = () => {
     const [displayOrderId, setDisplayOrderId] = useState(null);
     const [showThankYou, setShowThankYou] = useState(false);
     const [showReview, setShowReview] = useState(false);
-    const [isTakeawayOrder, setIsTakeawayOrder] = useState(false); // New toggle for dine-in users
+    const [isParcelOrder, setIsParcelOrder] = useState(false); // Renamed from isTakeawayOrder
     const wasOccupied = useRef(false);
 
     const location = useLocation();
@@ -33,6 +33,8 @@ const MenuPage = () => {
                 (payload) => {
                     if (payload.new.status === 'paid') {
                         setShowThankYou(true);
+                    } else if (payload.new.status === 'rejected') {
+                        setOrderStatus('rejected');
                     }
                 }
             )
@@ -163,8 +165,8 @@ const MenuPage = () => {
             const cartTotal = cartItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
             // Check for existing active order for this table
-            // For takeaway, effective ID is 0, for dine-in it is the table number
-            const effectiveTableId = isTakeawayOrder ? 0 : parseInt(tableId);
+            // Only pure parcel QR scans have tableId === '0'. 
+            const effectiveTableId = parseInt(tableId); // Strict adherence to scanned table
 
             const { data: existingOrder, error: fetchError } = await supabase
                 .from('orders')
@@ -180,7 +182,8 @@ const MenuPage = () => {
                 const updatedItems = existingOrder.items.map(item => ({ ...item, isNew: false }));
                 
                 cartItems.forEach(cartItem => {
-                    const existingItemIndex = updatedItems.findIndex(i => i.id === cartItem.id || i.name === cartItem.name);
+                    // Match item by id and isParcel flag so dine-in and parcel don't merge quantities
+                    const existingItemIndex = updatedItems.findIndex(i => i.id === cartItem.id && i.isParcel === isParcelOrder);
                     if (existingItemIndex > -1) {
                         updatedItems[existingItemIndex].qty += cartItem.qty;
                         updatedItems[existingItemIndex].isNew = true; // Flag as updated/new
@@ -190,7 +193,8 @@ const MenuPage = () => {
                             name: cartItem.name, 
                             qty: cartItem.qty, 
                             price: cartItem.price,
-                            isNew: true // Flag as new addition
+                            isNew: true, // Flag as new addition
+                            isParcel: isParcelOrder
                         });
                     }
                 });
@@ -214,7 +218,8 @@ const MenuPage = () => {
                     name: i.name, 
                     qty: i.qty, 
                     price: i.price,
-                    isNew: true 
+                    isNew: true,
+                    isParcel: isParcelOrder || effectiveTableId === 0
                 }));
 
                 if (effectiveTableId === 0) {
@@ -324,7 +329,7 @@ const MenuPage = () => {
                     <div>
                         <h1 style={{ fontSize: '1.8rem', color: 'var(--text-main)', fontWeight: '800', letterSpacing: '-0.05em', lineHeight: 1 }}>snackssmania</h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: '600', marginTop: '4px', letterSpacing: '0.02em' }}>
-                            {isTakeaway ? '📦 Takeaway Order' : `🍽️ Table ${tableId}`}
+                            {isTakeaway ? '📦 Parcel Order' : `🍽️ Table ${tableId}`}
                         </p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.15)' }}>
@@ -523,7 +528,7 @@ const MenuPage = () => {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     {!isTakeaway && (
                                         <div 
-                                            onClick={() => setIsTakeawayOrder(!isTakeawayOrder)}
+                                            onClick={() => setIsParcelOrder(!isParcelOrder)}
                                             style={{
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -541,16 +546,16 @@ const MenuPage = () => {
                                                 height: '24px',
                                                 borderRadius: '6px',
                                                 border: '2px solid var(--accent-purple)',
-                                                backgroundColor: isTakeawayOrder ? 'var(--accent-purple)' : 'transparent',
+                                                backgroundColor: isParcelOrder ? 'var(--accent-purple)' : 'transparent',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 transition: 'all 0.2s'
                                             }}>
-                                                {isTakeawayOrder && <span style={{ color: 'white', fontSize: '14px' }}>✓</span>}
+                                                {isParcelOrder && <span style={{ color: 'white', fontSize: '14px' }}>✓</span>}
                                             </div>
                                             <div>
-                                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-main)' }}>Pack as Takeaway?</p>
+                                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-main)' }}>Pack as Parcel?</p>
                                                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>We will pack this for you to carry.</p>
                                             </div>
                                         </div>
@@ -598,6 +603,28 @@ const MenuPage = () => {
                                 </div>
                             </>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Rejected Order Modal */}
+            {orderStatus === 'rejected' && (
+                <div className="animate-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div className="glass animate-fade" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '40px', textAlign: 'center' }}>
+                        <h1 style={{ fontSize: '4rem', marginBottom: '16px' }}>❌</h1>
+                        <h2 style={{ fontSize: '1.8rem', fontWeight: '800', marginBottom: '12px', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>Order Unavailable</h2>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '32px', fontSize: '0.95rem' }}>We are sorry, but some items in your order are currently out of stock. Your order has been cancelled.</p>
+                        <button
+                            onClick={() => {
+                                setOrderStatus(null);
+                                setCart({});
+                                setLastOrderId(null);
+                            }}
+                            className="btn-primary"
+                            style={{ width: '100%', padding: '16px', borderRadius: '16px', fontWeight: '800', fontSize: '1rem', letterSpacing: '-0.01em' }}
+                        >
+                            Return to Menu
+                        </button>
                     </div>
                 </div>
             )}
