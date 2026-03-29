@@ -29,6 +29,13 @@ const AdminPage = () => {
     const [manualCart, setManualCart] = useState([]);
     const [manualSearch, setManualSearch] = useState('');
     const [manualCategory, setManualCategory] = useState('all');
+    const [isAddingItem, setIsAddingItem] = useState(false);
+    const [addItemSearch, setAddItemSearch] = useState('');
+    const [customerContacts, setCustomerContacts] = useState([]);
+    const [customerSearch, setCustomerSearch] = useState('');
+    const [payPhone, setPayPhone] = useState('');
+    const [payName, setPayName] = useState('');
+    const [payExists, setPayExists] = useState(false);
     
     // Security Utility: Sanitize inputs to prevent XSS
     const sanitize = (str) => {
@@ -94,6 +101,27 @@ const AdminPage = () => {
         }
     };
 
+    const fetchCustomers = async () => {
+        const { data } = await supabase.from('customers').select('*').order('name');
+        if (data) {
+            setCustomerContacts(data);
+        }
+    };
+
+    const checkCustomerByPhone = async (phone) => {
+        if (phone.length === 10) {
+            const { data } = await supabase.from('customers').select('*').eq('phone_number', phone).single();
+            if (data) {
+                setPayName(data.name);
+                setPayExists(true);
+            } else {
+                setPayExists(false);
+            }
+        } else {
+            setPayExists(false);
+        }
+    };
+
     const fetchOrders = async () => {
         const { data } = await supabase.from('orders')
             .select('*')
@@ -106,7 +134,7 @@ const AdminPage = () => {
 
     const fetchInitialData = async () => {
         setLoading(true);
-        await Promise.all([fetchTables(), fetchOrders(), fetchMenuItems(), fetchCategories()]);
+        await Promise.all([fetchTables(), fetchOrders(), fetchMenuItems(), fetchCategories(), fetchCustomers()]);
         
         // Auto-seed required drinks if missing
         const requiredDrinks = [
@@ -140,6 +168,9 @@ const AdminPage = () => {
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => {
                 fetchTables();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => {
+                fetchCustomers();
             })
             .subscribe();
 
@@ -224,7 +255,12 @@ const AdminPage = () => {
                 .from('menu-images')
                 .upload(filePath, file);
 
-            if (uploadError) throw uploadError;
+            if (uploadError) {
+                if (uploadError.message === 'Bucket not found') {
+                    throw new Error('Storage bucket "menu-images" not found. Please create it in your Supabase dashboard.');
+                }
+                throw uploadError;
+            }
 
             const { data: { publicUrl } } = supabase.storage
                 .from('menu-images')
@@ -232,8 +268,8 @@ const AdminPage = () => {
 
             return publicUrl;
         } catch (error) {
-            console.error('Error uploading image:', error.message);
-            alert('Error uploading image: ' + error.message);
+            console.error('Upload error details:', error);
+            alert('Upload failed: ' + error.message);
             return null;
         } finally {
             setIsUploading(false);
@@ -338,7 +374,6 @@ const AdminPage = () => {
 
     const acceptOrder = async (orderId, tableId) => {
         try {
-            setTables(prev => prev.map(t => t.id === tableId ? { ...t, is_free: false } : t));
             const targetOrder = orders.find(o => o.id === orderId);
             if (!targetOrder) throw new Error('Order not found');
 
@@ -377,8 +412,68 @@ const AdminPage = () => {
         }
     };
 
+    const handleUpdateItemQty = async (orderId, itemName, delta) => {
+        try {
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            let newItems = [...order.items];
+            const itemIdx = newItems.findIndex(i => i.name === itemName && i.type !== 'METADATA');
+            
+            if (itemIdx === -1) return;
+
+            const updatedQty = newItems[itemIdx].qty + delta;
+            
+            if (updatedQty <= 0) {
+                // Remove item
+                newItems.splice(itemIdx, 1);
+            } else {
+                // Update qty
+                newItems[itemIdx] = { ...newItems[itemIdx], qty: updatedQty };
+            }
+
+            // Recalculate total (excluding metadata)
+            const newTotal = newItems
+                .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA')
+                .reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+
+            const { data: updatedOrder, error } = await supabase
+                .from('orders')
+                .update({ items: newItems, total: newTotal })
+                .eq('id', orderId)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+            if (selectedTableOrder && selectedTableOrder.id === orderId) {
+                setSelectedTableOrder(updatedOrder);
+            }
+        } catch (err) {
+            console.error('Error updating quantity:', err.message);
+        }
+    };
+
     const markTableFree = async (tableId, paymentMethod = null) => {
         try {
+            // Save/Update Customer Info if provided
+            if (payPhone && payName) {
+                const { error: custError } = await supabase
+                    .from('customers')
+                    .upsert({ 
+                        name: payName, 
+                        phone_number: payPhone 
+                    }, { onConflict: 'phone_number' });
+                
+                if (custError) console.error('Error saving customer during payment:', custError);
+                
+                // Clear state
+                setPayPhone('');
+                setPayName('');
+                setPayExists(false);
+            }
+
             const { error: tableError } = await supabase.from('tables').update({ is_free: true }).eq('id', tableId);
             if (tableError) throw tableError;
 
@@ -582,6 +677,7 @@ const AdminPage = () => {
                         { id: 'takeaway',  label: '📦 Takeaway' },
                         { id: 'inventory', label: '🏷️ Inventory' },
                         { id: 'categories', label: '📂 Categories' },
+                        { id: 'customers', label: '👥 Customers' },
                     ].map(t => (
                         <button
                             key={t.id}
@@ -606,7 +702,7 @@ const AdminPage = () => {
                 </div>
 
                 {activeTab === 'customize' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
                         {/* Menu Management */}
                         <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -625,14 +721,11 @@ const AdminPage = () => {
 
                                 const newItem = {
                                     name: sanitize(formData.get('name')),
-                                    price: Math.max(0, parseInt(formData.get('price')) || 0),
-                                    category: sanitize(formData.get('category')),
-                                    description: sanitize(formData.get('description')),
+                                    price: parseFloat(formData.get('price')),
+                                    category: formData.get('category'),
                                     image_url: image_url,
-                                    is_veg: formData.get('is_veg') === 'on',
-                                    is_signature: formData.get('is_signature') === 'on',
-                                    is_available: true,
-                                    discount_pct: Math.min(100, Math.max(0, parseInt(formData.get('discount_pct')) || 0))
+                                    description: sanitize(formData.get('description')),
+                                    is_available: true
                                 };
 
                                 const { error } = await supabase.from('menu_items').insert(newItem);
@@ -646,93 +739,29 @@ const AdminPage = () => {
                                 <div style={{ display: 'flex', gap: '12px' }}>
                                     <input name="price" type="number" placeholder="Price (₹)" required className="glass" style={{ flex: 1, padding: '16px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
                                     <select name="category" required className="glass" style={{ flex: 1, padding: '16px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none', appearance: 'none' }}>
-                                        <option value="" style={{color:'black'}}>Select Category</option>
-                                        {categories.map(cat => (
-                                            <option key={cat.id} value={cat.name} style={{color:'black'}}>{cat.name}</option>
-                                        ))}
-                                        {categories.length === 0 && (
-                                            <>
-                                                <option value="coffee" style={{color:'black'}}>Coffee</option>
-                                                <option value="food" style={{color:'black'}}>Food</option>
-                                                <option value="dessert" style={{color:'black'}}>Dessert</option>
-                                                <option value="cold" style={{color:'black'}}>Cold</option>
-                                            </>
-                                        )}
+                                        <option value="">Select Category</option>
+                                        {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
                                     </select>
                                 </div>
-                                <textarea name="description" placeholder="Description" className="glass" style={{ padding: '16px', borderRadius: '16px', color: 'var(--text-main)', minHeight: '80px', outline: 'none' }} />
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginLeft: '4px' }}>Food Image</p>
+                                <textarea name="description" placeholder="Description" className="glass" style={{ padding: '16px', borderRadius: '16px', color: 'var(--text-main)', minHeight: '80px', outline: 'none', resize: 'none' }}></textarea>
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginLeft: '4px' }}>Item Image</p>
                                     <input type="file" name="image" accept="image/*" className="glass" style={{ padding: '12px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
                                 </div>
-                                <div style={{ display: 'flex', gap: '12px' }}>
-                                    <input name="discount_pct" type="number" placeholder="Discount %" className="glass" style={{ flex: 1, padding: '16px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
-                                </div>
-                                <div style={{ display: 'flex', gap: '24px', fontSize: '0.95rem', color: 'var(--text-muted)' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <input type="checkbox" name="is_veg" defaultChecked /> Veg
-                                    </label>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <input type="checkbox" name="is_signature" /> Signature
-                                    </label>
-                                </div>
-                                <button type="submit" disabled={isUploading} style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', letterSpacing: '-0.01em', marginTop: '8px', opacity: isUploading ? 0.5 : 1 }}>
-                                    {isUploading ? 'Uploading Image...' : 'Add Menu Item'}
+                                <button type="submit" disabled={isUploading} style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', marginTop: '8px', opacity: isUploading ? 0.5 : 1 }}>
+                                    {isUploading ? 'Uploading...' : 'Add Menu Item'}
                                 </button>
-                                
-                                <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '24px', marginTop: '8px' }}>
-                                    <input 
-                                        type="text" 
-                                        placeholder="🔍 Search in menu list..." 
-                                        value={menuSearch}
-                                        onChange={(e) => setMenuSearch(e.target.value)}
-                                        style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', background: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.9rem', outline: 'none' }}
-                                    />
-                                </div>
                             </form>
 
                             <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '8px' }}>
-                                {menuItems.filter(i => i.name.toLowerCase().includes(menuSearch.toLowerCase())).map(item => (
-                                    <div key={item.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', opacity: item.is_available === false ? 0.6 : 1, border: item.is_available === false ? '1px dashed #f87171' : '1px solid var(--border-subtle)' }}>
+                                {menuItems.filter(item => item.name.toLowerCase().includes(menuSearch.toLowerCase())).slice(0, 10).map(item => (
+                                    <div key={item.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            {item.image_url ? (
-                                                <img src={item.image_url} alt={item.name} style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover' }} />
-                                            ) : (
-                                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', backgroundColor: 'var(--glass)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{item.is_available === false ? '🚫' : '🍽️'}</div>
-                                            )}
-                                            <div>
-                                                <span style={{ fontWeight: '500', color: 'var(--text-main)', display: 'block' }}>
-                                                    {item.name} <span style={{ color: 'var(--text-muted)' }}>(₹{item.price})</span>
-                                                </span>
-                                                {item.is_available === false && <span style={{ fontSize: '0.65rem', color: '#f87171', fontWeight: '800', textTransform: 'uppercase' }}>UNAVAILABLE</span>}
-                                            </div>
+                                            {item.image_url && <img src={item.image_url} alt={item.name} style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover' }} />}
+                                            <span style={{ fontWeight: '500' }}>{item.name}</span>
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                            <button 
-                                                onClick={async () => {
-                                                    await supabase.from('menu_items').update({ is_available: !item.is_available }).eq('id', item.id);
-                                                    fetchMenuItems();
-                                                }}
-                                                style={{ 
-                                                    backgroundColor: item.is_available ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.1)', 
-                                                    color: item.is_available ? 'var(--accent-green)' : '#f87171', 
-                                                    border: '1px solid currentColor', 
-                                                    padding: '6px 10px', 
-                                                    borderRadius: '8px', 
-                                                    fontSize: '0.75rem', 
-                                                    fontWeight: '700' 
-                                                }}
-                                            >
-                                                {item.is_available ? 'Active' : 'Out'}
-                                            </button>
-                                            <button 
-                                                onClick={() => setEditItem(item)}
-                                                style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--accent-purple)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '700' }}
-                                            >Edit</button>
-                                            <button 
-                                                onClick={() => setMappingItem(item)}
-                                                style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', padding: '6px 12px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '600' }}
-                                            >🥗 Recipe</button>
+                                            <button onClick={() => setEditItem(item)} style={{ color: 'var(--accent-purple)', background: 'none', border: 'none', fontSize: '0.8rem', fontWeight: '700' }}>Edit</button>
                                             <button
                                                 onClick={async () => {
                                                     if (confirm(`Delete ${item.name}?`)) {
@@ -740,7 +769,7 @@ const AdminPage = () => {
                                                         fetchMenuItems();
                                                     }
                                                 }}
-                                                style={{ backgroundColor: 'transparent', color: 'var(--text-faint)', border: 'none', padding: '8px', borderRadius: '8px' }}
+                                                style={{ color: 'var(--text-faint)', background: 'none', border: 'none', padding: '8px', cursor: 'pointer' }}
                                             >✕</button>
                                         </div>
                                     </div>
@@ -802,17 +831,17 @@ const AdminPage = () => {
                                 onClick={() => setQrTable({ id: 0, isTakeaway: true })}
                                 style={{
                                     width: '100%',
-                                    marginTop: '24px',
+                                    marginTop: '20px',
                                     padding: '16px',
                                     backgroundColor: 'var(--glass)',
-                                    border: '1px solid var(--border-subtle)',
                                     color: 'var(--text-main)',
-                                    fontWeight: '700',
+                                    border: '1px solid var(--border-subtle)',
                                     borderRadius: '16px',
+                                    fontWeight: '700',
                                     cursor: 'pointer'
                                 }}
                             >
-                                Generate Takeaway QR
+                                📋 + Generate Takeaway QR (Table 0)
                             </button>
 
                             <button
@@ -834,10 +863,12 @@ const AdminPage = () => {
                             </button>
                         </div>
                     </div>
-                 ) : activeTab === 'categories' ? (
-                    <div className="glass" style={{ padding: '32px', borderRadius: '24px', maxWidth: '600px', margin: '0 auto' }}>
-                        <h2 style={{ marginBottom: '24px', color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '600', letterSpacing: '-0.02em' }}>Category Management</h2>
-                        
+                ) : activeTab === 'categories' ? (
+                    <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h2 style={{ color: 'var(--text-main)', fontSize: '1.6rem', fontWeight: '800' }}>📂 Category Management</h2>
+                        </div>
+
                         <form onSubmit={async (e) => {
                             e.preventDefault();
                             const formData = new FormData(e.target);
@@ -849,7 +880,7 @@ const AdminPage = () => {
                             }
 
                             const { error } = await supabase.from('categories').insert({
-                                name: formData.get('name'),
+                                name: sanitize(formData.get('name')),
                                 image_url: image_url
                             });
 
@@ -858,29 +889,33 @@ const AdminPage = () => {
                                 e.target.reset();
                                 fetchCategories();
                             }
-                        }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '32px' }}>
-                            <input name="name" placeholder="Category Name (e.g. Burgers)" required className="glass" style={{ padding: '16px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginLeft: '4px' }}>Category Image</p>
-                                <input type="file" name="image" accept="image/*" className="glass" style={{ padding: '12px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
+                        }} style={{ display: 'flex', gap: '16px', marginBottom: '32px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                            <div style={{ flex: 2, minWidth: '200px' }}>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', marginLeft: '4px' }}>Category Name</p>
+                                <input name="name" placeholder="e.g. Burgers" required className="glass" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
                             </div>
-                            <button type="submit" disabled={isUploading} style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', marginTop: '8px', opacity: isUploading ? 0.5 : 1 }}>
-                                {isUploading ? 'Uploading Image...' : 'Add Category'}
+                            <div style={{ flex: 1, minWidth: '150px' }}>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', marginLeft: '4px' }}>Image</p>
+                                <input type="file" name="image" accept="image/*" className="glass" style={{ width: '100%', padding: '10px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none', fontSize: '0.8rem' }} />
+                            </div>
+                            <button type="submit" disabled={isUploading} style={{ padding: '14px 28px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', height: '48px', opacity: isUploading ? 0.5 : 1 }}>
+                                {isUploading ? 'Uploading...' : 'Add Category'}
                             </button>
                         </form>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
                             {categories.map(cat => (
-                                <div key={cat.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        {cat.image_url && <img src={cat.image_url} alt={cat.name} style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover' }} />}
-                                        <span style={{ fontWeight: '600' }}>{cat.name}</span>
+                                <div key={cat.id} className="glass" style={{ padding: '20px', borderRadius: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                        {cat.image_url ? (
+                                            <img src={cat.image_url} alt={cat.name} style={{ width: '50px', height: '50px', borderRadius: '12px', objectFit: 'cover' }} />
+                                        ) : (
+                                            <div style={{ width: '50px', height: '50px', borderRadius: '12px', backgroundColor: 'var(--glass)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem' }}>📂</div>
+                                        )}
+                                        <span style={{ fontWeight: '700', fontSize: '1.1rem' }}>{cat.name}</span>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                            <button
-                                                onClick={() => setEditCategory(cat)}
-                                                style={{ color: 'var(--accent-purple)', background: 'none', border: 'none', fontSize: '0.8rem', fontWeight: '700' }}
-                                            >Edit</button>
+                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                        <button onClick={() => setEditCategory(cat)} style={{ color: 'var(--accent-purple)', background: 'none', border: 'none', fontWeight: '700', cursor: 'pointer' }}>Edit</button>
                                         <button
                                             onClick={async () => {
                                                 if (confirm(`Delete category ${cat.name}? Items in this category will become Uncategorized.`)) {
@@ -890,14 +925,59 @@ const AdminPage = () => {
                                                     fetchMenuItems();
                                                 }
                                             }}
-                                            style={{ color: 'var(--text-faint)', background: 'none', border: 'none', padding: '8px', cursor: 'pointer' }}
+                                            style={{ color: '#f87171', background: 'none', border: 'none', padding: '8px', cursor: 'pointer' }}
                                         >✕</button>
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </div>
-                 ) : activeTab === 'inventory' ? (
+                ) : activeTab === 'customers' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                <h1 style={{ fontSize: '1.6rem', fontWeight: '800' }}>Customer Directory</h1>
+                                <input 
+                                    type="text" 
+                                    placeholder="🔍 Search by name or phone..." 
+                                    className="glass"
+                                    value={customerSearch}
+                                    onChange={(e) => setCustomerSearch(e.target.value)}
+                                    style={{ padding: '12px 20px', borderRadius: '16px', color: 'white', width: '300px', outline: 'none' }}
+                                />
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                                {customerContacts
+                                    .filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.phone_number.includes(customerSearch))
+                                    .map(customer => (
+                                        <div key={customer.id} className="glass" style={{ padding: '20px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                            <div style={{ width: '48px', height: '48px', borderRadius: '24px', background: 'var(--accent-white)', color: 'var(--bg-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '1.2rem' }}>
+                                                {customer.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '2px' }}>{customer.name}</h3>
+                                                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>📞 {customer.phone_number}</p>
+                                            </div>
+                                            <button 
+                                                onClick={async () => {
+                                                    if (confirm(`Delete contact for ${customer.name}?`)) {
+                                                        await supabase.from('customers').delete().eq('id', customer.id);
+                                                        fetchCustomers();
+                                                    }
+                                                }}
+                                                style={{ color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}
+                                            >✕</button>
+                                        </div>
+                                    ))}
+                                {customerContacts.length === 0 && (
+                                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                                        No customer records found yet.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ) : activeTab === 'inventory' ? (
                     <InventoryManager 
                         materials={materials} setMaterials={setMaterials}
                         recipes={invRecipes} setRecipes={setInvRecipes}
@@ -1129,15 +1209,141 @@ const AdminPage = () => {
                             </div>
 
                             <div style={{ marginBottom: '32px' }}>
-                                {selectedTableOrder.items.filter(i => i.type !== 'METADATA').map((item, idx) => (
-                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '1.1rem', color: 'var(--text-main)' }}>
-                                        <span style={{ fontWeight: '500' }}><span style={{ color: 'var(--text-muted)', marginRight: '12px' }}>{item.qty}x</span> {item.name}</span>
+                                {selectedTableOrder.items.filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA').map((item, idx) => (
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '1.1rem', color: 'var(--text-main)', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--glass)', padding: '4px 8px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+                                                <button 
+                                                    onClick={() => handleUpdateItemQty(selectedTableOrder.id, item.name, -1)}
+                                                    style={{ background: 'none', border: 'none', color: 'var(--text-main)', fontSize: '1.2rem', cursor: 'pointer', padding: '0 4px', fontWeight: 'bold' }}
+                                                >
+                                                    -
+                                                </button>
+                                                <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: '700', fontSize: '0.95rem' }}>{item.qty}</span>
+                                                <button 
+                                                    onClick={() => handleUpdateItemQty(selectedTableOrder.id, item.name, 1)}
+                                                    style={{ background: 'none', border: 'none', color: 'var(--text-main)', fontSize: '1.2rem', cursor: 'pointer', padding: '0 4px', fontWeight: 'bold' }}
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+                                            <span style={{ fontWeight: '500' }}>{item.name}</span>
+                                        </div>
                                         <span style={{ color: 'var(--text-main)', fontWeight: '600' }}>₹{item.price * item.qty}</span>
                                     </div>
                                 ))}
                                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', marginTop: '20px', display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1.6rem', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
                                     <span style={{ color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', alignSelf: 'center' }}>Total</span>
                                     <span>₹{selectedTableOrder.total}</span>
+                                </div>
+
+                                {/* Add Item Section */}
+                                <div style={{ marginTop: '20px', borderTop: '1px dashed var(--border-subtle)', paddingTop: '20px' }}>
+                                    {!isAddingItem ? (
+                                        <button 
+                                            onClick={() => setIsAddingItem(true)}
+                                            style={{ 
+                                                width: '100%', 
+                                                padding: '12px', 
+                                                backgroundColor: 'rgba(255,255,255,0.05)', 
+                                                border: '1px solid var(--border-subtle)', 
+                                                borderRadius: '12px', 
+                                                color: 'var(--text-main)', 
+                                                fontWeight: '600',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            + Add Item
+                                        </button>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Search item..." 
+                                                    value={addItemSearch}
+                                                    onChange={(e) => setAddItemSearch(e.target.value)}
+                                                    autoFocus
+                                                    className="glass"
+                                                    style={{ flex: 1, padding: '10px 16px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none', fontSize: '0.9rem' }}
+                                                />
+                                                <button onClick={() => { setIsAddingItem(false); setAddItemSearch(''); }} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '40px', borderRadius: '12px', color: 'white' }}>✕</button>
+                                            </div>
+                                            {addItemSearch && (
+                                                <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
+                                                    {menuItems
+                                                        .filter(i => i.is_available !== false)
+                                                        .filter(i => i.name.toLowerCase().includes(addItemSearch.toLowerCase()))
+                                                        .map(item => (
+                                                            <button 
+                                                                key={item.id}
+                                                                onClick={async () => {
+                                                                    await placeManualOrder(selectedTableOrder.table_id, [{ ...item, qty: 1 }]);
+                                                                    setIsAddingItem(false);
+                                                                    setAddItemSearch('');
+                                                                    // The real-time subscription or fetchInitialData inside placeManualOrder will update selectedTableOrder via orders state
+                                                                    // But since selectedTableOrder is local state, we should find it again
+                                                                    const updatedOrders = await supabase.from('orders').select('*');
+                                                                    if (updatedOrders.data) {
+                                                                        const latest = updatedOrders.data.find(o => o.id === selectedTableOrder.id);
+                                                                        if (latest) setSelectedTableOrder(latest);
+                                                                    }
+                                                                }}
+                                                                style={{ 
+                                                                    display: 'flex', 
+                                                                    justifyContent: 'space-between', 
+                                                                    padding: '12px 16px', 
+                                                                    backgroundColor: 'rgba(255,255,255,0.03)', 
+                                                                    border: '1px solid var(--border-subtle)', 
+                                                                    borderRadius: '12px', 
+                                                                    color: 'white',
+                                                                    textAlign: 'left',
+                                                                    cursor: 'pointer'
+                                                                }}
+                                                            >
+                                                                <span style={{ fontWeight: '500', flex: 1, marginRight: '12px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{item.name}</span>
+                                                                <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>₹{item.price}</span>
+                                                            </button>
+                                                        ))
+                                                    }
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Customer Info for Direct Payment */}
+                                <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+                                    <div style={{ position: 'relative' }}>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Customer Phone (10 digits)"
+                                            className="glass"
+                                            value={payPhone}
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                                setPayPhone(val);
+                                                checkCustomerByPhone(val);
+                                            }}
+                                            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none', fontSize: '1rem' }}
+                                        />
+                                        {payExists && (
+                                            <span style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.8rem', color: '#4ade80', fontWeight: '800' }}>
+                                                ✅ Exists
+                                            </span>
+                                        )}
+                                    </div>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Customer Name"
+                                        className="glass"
+                                        value={payName}
+                                        onChange={(e) => setPayName(e.target.value)}
+                                        style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none', fontSize: '1rem' }}
+                                    />
+                                    {payExists && (
+                                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '4px' }}>* Returning customer detected</p>
+                                    )}
                                 </div>
                             </div>
 

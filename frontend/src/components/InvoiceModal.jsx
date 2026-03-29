@@ -1,11 +1,46 @@
 import React, { useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 const InvoiceModal = ({ order, isOpen, onClose, onPaid }) => {
     const [paymentMethod, setPaymentMethod] = useState('Cash');
+    const [customerPhone, setCustomerPhone] = useState('');
+    const [customerName, setCustomerName] = useState('');
+    const [isExistingCustomer, setIsExistingCustomer] = useState(false);
 
     if (!isOpen || !order) return null;
 
-    const handlePrint = () => {
+    const checkExistingCustomer = async (phone) => {
+        if (phone.length >= 10) {
+            const { data, error } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('phone_number', phone)
+                .single();
+            
+            if (data) {
+                setCustomerName(data.name);
+                setIsExistingCustomer(true);
+            } else {
+                setIsExistingCustomer(false);
+            }
+        } else {
+            setIsExistingCustomer(false);
+        }
+    };
+
+    const handlePrint = async () => {
+        if (customerPhone && customerName) {
+            // Save or update customer
+            const { error: custError } = await supabase
+                .from('customers')
+                .upsert({ 
+                    name: customerName, 
+                    phone_number: customerPhone 
+                }, { onConflict: 'phone_number' });
+            
+            if (custError) console.error('Error saving customer:', custError);
+        }
+
         if (onPaid) onPaid(paymentMethod);
         window.print();
     };
@@ -105,6 +140,51 @@ const InvoiceModal = ({ order, isOpen, onClose, onPaid }) => {
                                 return `Table ${order.table_id}`;
                             })()}
                         </h2>
+
+                        {/* Customer Info Inputs */}
+                        <div className="no-print" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ position: 'relative' }}>
+                                <input 
+                                    type="text" 
+                                    placeholder="Customer Phone (10 digits)"
+                                    value={customerPhone}
+                                    onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                        setCustomerPhone(val);
+                                        checkExistingCustomer(val);
+                                    }}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.9rem' }}
+                                />
+                                {isExistingCustomer && (
+                                    <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#4ade80', fontWeight: '700' }}>
+                                        ✅ Exists
+                                    </span>
+                                )}
+                            </div>
+                            <input 
+                                type="text" 
+                                placeholder="Customer Name"
+                                value={customerName}
+                                onChange={(e) => setCustomerName(e.target.value)}
+                                style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid #ddd', fontSize: '0.9rem' }}
+                            />
+                            {isExistingCustomer && (
+                                <p style={{ margin: 0, fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>* Customer already exists in directory</p>
+                            )}
+                        </div>
+
+                        {/* Display on Print */}
+                        <div className="print-only" style={{ display: 'none' }}>
+                            {customerName && <p style={{ marginTop: '16px', fontSize: '0.95rem' }}><strong>Customer:</strong> {customerName}</p>}
+                            {customerPhone && <p style={{ fontSize: '0.95rem' }}><strong>Phone:</strong> {customerPhone}</p>}
+                        </div>
+                        <style>
+                            {`
+                                @media print {
+                                    .print-only { display: block !important; }
+                                }
+                            `}
+                        </style>
                     </div>
                     <div style={{ textAlign: 'right', fontSize: '0.9rem', color: '#555' }}>
                         <p style={{ marginBottom: '4px' }}><strong>INV:</strong> {invoiceNumber}</p>
