@@ -26,6 +26,15 @@ const AdminPage = () => {
     const [editItem, setEditItem] = useState(null);
     const [editCategory, setEditCategory] = useState(null);
     const [menuSearch, setMenuSearch] = useState('');
+    const [manualCart, setManualCart] = useState([]);
+    const [manualSearch, setManualSearch] = useState('');
+    const [manualCategory, setManualCategory] = useState('all');
+    
+    // Security Utility: Sanitize inputs to prevent XSS
+    const sanitize = (str) => {
+        if (typeof str !== 'string') return str;
+        return str.replace(/[<>]/g, '').trim();
+    };
     
     // Recipe Modal State
     const [newMatId, setNewMatId] = useState('');
@@ -233,43 +242,65 @@ const AdminPage = () => {
 
     const placeManualOrder = async (tableId, items) => {
         try {
-            const { data: existingOrder } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('table_id', tableId)
-                .neq('status', 'paid')
-                .maybeSingle();
+            let orderToUpdate = null;
+            
+            // Only merge for actual tables (not takeaway ID 0)
+            if (tableId > 0) {
+                const { data } = await supabase
+                    .from('orders')
+                    .select('*')
+                    .eq('table_id', tableId)
+                    .neq('status', 'paid');
+                
+                if (data && data.length > 0) {
+                    orderToUpdate = data[0]; // Take the first active order for this table
+                }
+            }
 
-            if (existingOrder) {
+            if (orderToUpdate) {
                 // Merge with existing
-                const updatedItems = [...existingOrder.items];
+                const updatedItems = [...orderToUpdate.items];
                 items.forEach(newItem => {
                     const idx = updatedItems.findIndex(i => i.id === newItem.id);
                     if (idx > -1) updatedItems[idx].qty += newItem.qty;
-                    else updatedItems.push({ ...newItem, isNew: false });
+                    else updatedItems.push({ ...newItem, isNew: false, qty: newItem.qty });
                 });
-                const newTotal = existingOrder.total + items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+                const newTotal = orderToUpdate.total + items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
                 
                 await supabase.from('orders').update({
                     items: updatedItems,
                     total: newTotal,
                     status: 'preparing'
-                }).eq('id', existingOrder.id);
+                }).eq('id', orderToUpdate.id);
             } else {
-                // New Order
+                // New Order (New takeaway or new table)
                 const total = items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
-                await supabase.from('orders').insert({
+                const orderData = {
                     table_id: tableId,
                     items: items.map(i => ({ ...i, isNew: false })),
                     total,
                     status: 'preparing'
-                });
+                };
+
+                // Add takeaway metadata if Table 0
+                if (tableId === 0) {
+                    const takeawayNo = Math.floor(Math.random() * 9000) + 1000;
+                    orderData.items.push({ type: 'METADATA', takeaway_no: takeawayNo });
+                }
+
+                await supabase.from('orders').insert(orderData);
             }
             
-            await supabase.from('tables').update({ is_free: false }).eq('id', tableId);
+            if (tableId > 0) {
+                await supabase.from('tables').update({ is_free: false }).eq('id', tableId);
+            }
+            
             fetchInitialData();
             setShowManualOrder(null);
+            setManualCart([]);
+            alert('Order placed successfully!');
         } catch (err) {
+            console.error('Manual order error:', err);
             alert('Failed to place manual order: ' + err.message);
         }
     };
@@ -593,15 +624,15 @@ const AdminPage = () => {
                                 }
 
                                 const newItem = {
-                                    name: formData.get('name'),
-                                    price: parseInt(formData.get('price')),
-                                    category: formData.get('category'),
-                                    description: formData.get('description'),
+                                    name: sanitize(formData.get('name')),
+                                    price: Math.max(0, parseInt(formData.get('price')) || 0),
+                                    category: sanitize(formData.get('category')),
+                                    description: sanitize(formData.get('description')),
                                     image_url: image_url,
                                     is_veg: formData.get('is_veg') === 'on',
                                     is_signature: formData.get('is_signature') === 'on',
                                     is_available: true,
-                                    discount_pct: parseInt(formData.get('discount_pct')) || 0
+                                    discount_pct: Math.min(100, Math.max(0, parseInt(formData.get('discount_pct')) || 0))
                                 };
 
                                 const { error } = await supabase.from('menu_items').insert(newItem);
@@ -1171,8 +1202,27 @@ const AdminPage = () => {
                         alignItems: 'center',
                         gap: '32px',
                         backgroundColor: 'var(--bg-surface)',
-                        boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)'
+                        position: 'relative',
+                        maxHeight: '90vh',
+                        overflowY: 'auto'
                     }}>
+                        <button 
+                            onClick={() => setQrTable(null)} 
+                            style={{ 
+                                position: 'absolute', 
+                                top: '20px', 
+                                right: '20px', 
+                                background: 'var(--glass)', 
+                                border: '1px solid var(--border-subtle)', 
+                                width: '36px', 
+                                height: '36px', 
+                                borderRadius: '18px', 
+                                color: 'white', 
+                                cursor: 'pointer',
+                                zIndex: 10
+                            }}
+                        >✕</button>
+
                         {/* Designed QR Card for Printing */}
                         <div id="qr-to-print" style={{ 
                             display: 'flex', 
@@ -1233,9 +1283,19 @@ const AdminPage = () => {
                                 const style = document.createElement('style');
                                 style.innerHTML = `
                                     @media print {
-                                        body * { visibility: hidden; }
-                                        #qr-to-print, #qr-to-print * { visibility: visible; }
-                                        #qr-to-print { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); border: none; box-shadow: none; }
+                                        body * { visibility: hidden !important; }
+                                        #qr-to-print, #qr-to-print * { visibility: visible !important; }
+                                        #qr-to-print { 
+                                            position: absolute !important; 
+                                            left: 0 !important; 
+                                            top: 0 !important; 
+                                            margin: 0 !important;
+                                            padding: 40px !important;
+                                            width: 100mm !important;
+                                            height: 150mm !important;
+                                            box-shadow: none !important;
+                                            border: none !important;
+                                        }
                                     }
                                 `;
                                 document.head.appendChild(style);
@@ -1343,52 +1403,75 @@ const AdminPage = () => {
                 </div>
             )}
             {/* Manual Order Modal */}
-            {showManualOrder && (
+            {showManualOrder !== null && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
                     <div className="glass" style={{ width: '100%', maxWidth: '900px', height: '90vh', borderRadius: '32px', padding: '32px', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                            <h2 style={{ fontSize: '1.5rem', fontWeight: '800' }}>Manual Order — Table {showManualOrder}</h2>
-                            <button onClick={() => setShowManualOrder(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '40px', height: '40px', borderRadius: '20px', color: 'white' }}>✕</button>
+                            <h2 style={{ fontSize: '1.5rem', fontWeight: '800' }}>Manual Order — {showManualOrder === 0 ? 'Takeaway' : `Table ${showManualOrder}`}</h2>
+                            <button onClick={() => { setShowManualOrder(null); setManualCart([]); setManualSearch(''); setManualCategory('all'); }} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '40px', height: '40px', borderRadius: '20px', color: 'white' }}>✕</button>
                         </div>
 
                         <div style={{ flex: 1, display: 'flex', gap: '24px', overflow: 'hidden' }}>
                             {/* Menu Selection */}
                             <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingRight: '8px' }}>
-                                <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px' }}>
-                                    {['all', ...categories.map(c => c.name)].map(catName => (
-                                        <button 
-                                            key={catName} 
-                                            // Simple filtering logic could be added here
-                                            style={{ padding: '8px 16px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', borderRadius: '20px', fontSize: '0.8rem', color: 'white' }}
-                                        >
-                                            {catName.toUpperCase()}
-                                        </button>
-                                    ))}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <input 
+                                        type="text" 
+                                        placeholder="🔍 Search items by name..." 
+                                        value={manualSearch}
+                                        onChange={(e) => setManualSearch(e.target.value)}
+                                        className="glass" 
+                                        style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none' }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
+                                        {['all', ...categories.map(c => c.name)].map(catName => (
+                                            <button 
+                                                key={catName} 
+                                                onClick={() => setManualCategory(catName)}
+                                                style={{ 
+                                                    padding: '8px 20px', 
+                                                    backgroundColor: manualCategory === catName ? 'var(--accent-white)' : 'var(--glass)', 
+                                                    color: manualCategory === catName ? 'var(--bg-dark)' : 'white', 
+                                                    border: '1px solid var(--border-subtle)', 
+                                                    borderRadius: '20px', 
+                                                    fontSize: '0.8rem', 
+                                                    fontWeight: '700',
+                                                    whiteSpace: 'nowrap',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                            >
+                                                {catName.toUpperCase()}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px' }}>
-                                    {menuItems.filter(i => i.is_available !== false).map(item => (
-                                        <div 
-                                            key={item.id} 
-                                            onClick={() => {
-                                                const existing = (window.manualCart || []).find(i => i.id === item.id);
-                                                if (existing) {
-                                                    window.manualCart = window.manualCart.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
-                                                } else {
-                                                    window.manualCart = [...(window.manualCart || []), { ...item, qty: 1 }];
-                                                }
-                                                // Trigger re-render (hacky but works for quick implementation in one file)
-                                                setActiveTab(activeTab); 
-                                            }}
-                                            className="glass" 
-                                            style={{ padding: '12px', borderRadius: '20px', textAlign: 'center', cursor: 'pointer' }}
-                                        >
-                                            <div style={{ width: '100%', aspectRatio: '1', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                                {item.image_url ? <img src={item.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🍽️'}
+                                    {menuItems
+                                        .filter(i => i.is_available !== false)
+                                        .filter(i => manualCategory === 'all' || i.category === manualCategory)
+                                        .filter(i => i.name.toLowerCase().includes(manualSearch.toLowerCase()))
+                                        .map(item => (
+                                            <div 
+                                                key={item.id} 
+                                                onClick={() => {
+                                                    const existing = manualCart.find(i => i.id === item.id);
+                                                    if (existing) {
+                                                        setManualCart(prev => prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i));
+                                                    } else {
+                                                        setManualCart(prev => [...prev, { ...item, qty: 1 }]);
+                                                    }
+                                                }}
+                                                className="glass" 
+                                                style={{ padding: '12px', borderRadius: '20px', textAlign: 'center', cursor: 'pointer' }}
+                                            >
+                                                <div style={{ width: '100%', aspectRatio: '1', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                                    {item.image_url ? <img src={item.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🍽️'}
+                                                </div>
+                                                <p style={{ fontSize: '0.85rem', fontWeight: '700', marginBottom: '2px' }}>{item.name}</p>
+                                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{item.price}</p>
                                             </div>
-                                            <p style={{ fontSize: '0.85rem', fontWeight: '700', marginBottom: '2px' }}>{item.name}</p>
-                                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{item.price}</p>
-                                        </div>
-                                    ))}
+                                        ))
+                                    }
                                 </div>
                             </div>
 
@@ -1396,7 +1479,7 @@ const AdminPage = () => {
                             <div className="glass" style={{ flex: 1, padding: '24px', borderRadius: '24px', display: 'flex', flexDirection: 'column' }}>
                                 <h3 style={{ marginBottom: '20px', fontSize: '1.1rem' }}>Selected Items</h3>
                                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {(window.manualCart || []).map((item, idx) => (
+                                    {manualCart.map((item, idx) => (
                                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ flex: 1 }}>
                                                 <p style={{ fontSize: '0.9rem', fontWeight: '600' }}>{item.name}</p>
@@ -1405,15 +1488,13 @@ const AdminPage = () => {
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 <button 
                                                     onClick={() => {
-                                                        window.manualCart = window.manualCart.map(i => i.id === item.id ? { ...i, qty: Math.max(0, i.qty - 1) } : i).filter(i => i.qty > 0);
-                                                        setActiveTab(activeTab);
+                                                        setManualCart(prev => prev.map(i => i.id === item.id ? { ...i, qty: Math.max(0, i.qty - 1) } : i).filter(i => i.qty > 0));
                                                     }}
                                                     style={{ width: '24px', height: '24px', borderRadius: '12px', border: '1px solid var(--border-subtle)', color: 'white' }}
                                                 >-</button>
                                                 <button 
                                                     onClick={() => {
-                                                        window.manualCart = window.manualCart.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
-                                                        setActiveTab(activeTab);
+                                                        setManualCart(prev => prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i));
                                                     }}
                                                     style={{ width: '24px', height: '24px', borderRadius: '12px', border: '1px solid var(--border-subtle)', color: 'white' }}
                                                 >+</button>
@@ -1424,13 +1505,13 @@ const AdminPage = () => {
                                 <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', fontWeight: '800', fontSize: '1.2rem' }}>
                                         <span>Total</span>
-                                        <span>₹{(window.manualCart || []).reduce((acc, curr) => acc + (curr.price * curr.qty), 0)}</span>
+                                        <span>₹{manualCart.reduce((acc, curr) => acc + (curr.price * curr.qty), 0)}</span>
                                     </div>
                                     <button 
                                         onClick={() => {
-                                            if (!window.manualCart || window.manualCart.length === 0) return;
-                                            placeManualOrder(showManualOrder, window.manualCart);
-                                            window.manualCart = [];
+                                            if (manualCart.length === 0) return;
+                                            placeManualOrder(showManualOrder, manualCart);
+                                            setManualCart([]);
                                         }}
                                         style={{ width: '100%', padding: '16px', background: 'var(--accent-white)', color: 'var(--bg-dark)', borderRadius: '16px', fontWeight: '800' }}
                                     >
@@ -1462,14 +1543,14 @@ const AdminPage = () => {
                             }
 
                             const updates = {
-                                name: formData.get('name'),
-                                price: parseInt(formData.get('price')),
-                                category: formData.get('category'),
-                                description: formData.get('description'),
+                                name: sanitize(formData.get('name')),
+                                price: Math.max(0, parseInt(formData.get('price')) || 0),
+                                category: sanitize(formData.get('category')),
+                                description: sanitize(formData.get('description')),
                                 image_url: image_url,
                                 is_veg: formData.get('is_veg') === 'on',
                                 is_signature: formData.get('is_signature') === 'on',
-                                discount_pct: parseInt(formData.get('discount_pct')) || 0
+                                discount_pct: Math.min(100, Math.max(0, parseInt(formData.get('discount_pct')) || 0))
                             };
 
                             const { error } = await supabase.from('menu_items').update(updates).eq('id', editItem.id);
@@ -1521,7 +1602,7 @@ const AdminPage = () => {
                                 image_url = await handleImageUpload(imageFile);
                             }
 
-                            const newName = formData.get('name');
+                            const newName = sanitize(formData.get('name'));
                             const { error } = await supabase.from('categories').update({
                                 name: newName,
                                 image_url: image_url

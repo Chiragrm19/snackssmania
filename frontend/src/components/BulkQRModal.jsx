@@ -82,17 +82,23 @@ const BulkQRModal = ({ tables, isOpen, onClose, qrBaseUrl }) => {
 
             <style>{`
                 @media print {
-                    .no-print { display: none !important; }
-                    body { background: white !important; padding: 0 !important; margin: 0 !important; }
+                    .no-print { display: none !important; visibility: hidden !important; }
+                    body { background: white !important; padding: 0 !important; margin: 0 !important; visibility: hidden !important; }
+                    #bulk-qr-container, #bulk-qr-container * { 
+                        visibility: visible !important; 
+                        display: grid !important;
+                    }
                     #bulk-qr-container { 
-                        display: block !important; 
-                        overflow: visible !important; 
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
                         padding: 0 !important;
                         margin: 0 !important;
-                        width: 100% !important;
+                        overflow: visible !important;
                     }
                     .qr-card-premium { 
-                        page-break-inside: avoid;
+                        page-break-inside: avoid !important;
                         margin: 10mm auto !important;
                         width: 90mm !important;
                         height: 140mm !important;
