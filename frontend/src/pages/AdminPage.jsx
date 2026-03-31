@@ -410,16 +410,18 @@ const AdminPage = () => {
             const targetOrder =
                 orders.find(o => o.id === normalizedOrderId || o.id === rawId) || passedOrder;
 
-            // Hard delete the order so it cannot be reused/merged
-            const { error: deleteError } = await supabase
+            // Mark as rejected (so customer sees the rejection), but treat it as non-active everywhere else
+            const { data: updatedOrder, error: updateError } = await supabase
                 .from('orders')
-                .delete()
-                .eq('id', normalizedOrderId);
+                .update({ status: 'rejected' })
+                .eq('id', normalizedOrderId)
+                .select()
+                .single();
 
-            if (deleteError) throw deleteError;
+            if (updateError) throw updateError;
 
             // If this was a dine-in table, immediately free it up
-            const tableIdToFree = targetOrder?.table_id;
+            const tableIdToFree = (updatedOrder && updatedOrder.table_id) ?? targetOrder?.table_id;
             if (tableIdToFree && Number(tableIdToFree) > 0) {
                 const normalizedTableId =
                     typeof tableIdToFree === 'string' && !Number.isNaN(Number(tableIdToFree))
@@ -442,8 +444,8 @@ const AdminPage = () => {
                 }
             }
 
-            // Remove from local state so UI immediately reflects dismissal
-            setOrders(prev => prev.filter(o => o.id !== normalizedOrderId && o.id !== rawId));
+            // Update local state so UI immediately reflects dismissal and status
+            setOrders(prev => prev.map(o => (o.id === normalizedOrderId || o.id === rawId ? updatedOrder : o)));
             setNewOrder(null);
         } catch (err) {
             console.error('Error rejecting order:', err.message);
@@ -637,6 +639,158 @@ const AdminPage = () => {
             setInvoiceOrder(null);
         } catch (err) {
             console.error('Error recording payment:', err.message);
+        }
+    };
+
+    const transferOrderToTable = async (orderId, fromTableId) => {
+        const input = prompt('Transfer this order to which table number?');
+        const toTableId = Number(input);
+        if (!toTableId || toTableId === fromTableId) return;
+
+        try {
+            const { data: existingTarget, error: targetError } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('table_id', toTableId)
+                .neq('status', 'paid')
+                .neq('status', 'rejected')
+                .maybeSingle();
+
+            if (targetError && targetError.code !== 'PGRST116') throw targetError;
+            if (existingTarget) {
+                alert('Target table already has an active order. Use "Combine Tables" instead.');
+                return;
+            }
+
+            const { data: updatedOrder, error: orderError } = await supabase
+                .from('orders')
+                .update({ table_id: toTableId })
+                .eq('id', orderId)
+                .select()
+                .single();
+
+            if (orderError) throw orderError;
+
+            await supabase.from('tables').update({ is_free: true }).eq('id', fromTableId);
+            await supabase.from('tables').update({ is_free: false }).eq('id', toTableId);
+
+            setTables(prev =>
+                prev.map(t =>
+                    t.id === fromTableId
+                        ? { ...t, is_free: true }
+                        : t.id === toTableId
+                        ? { ...t, is_free: false }
+                        : t
+                )
+            );
+
+            setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+            if (selectedTableOrder && selectedTableOrder.id === orderId) {
+                setSelectedTableOrder(updatedOrder);
+            }
+        } catch (err) {
+            console.error('Error transferring table:', err.message);
+            alert('Failed to transfer table: ' + err.message);
+        }
+    };
+
+    const combineTableWith = async (primaryTableId) => {
+        const input = prompt('Combine this table with which table number?');
+        const secondaryTableId = Number(input);
+        if (!secondaryTableId || secondaryTableId === primaryTableId) return;
+
+        try {
+            const { data: primaryOrders, error: primaryError } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('table_id', primaryTableId)
+                .neq('status', 'paid')
+                .neq('status', 'rejected');
+
+            if (primaryError) throw primaryError;
+
+            const { data: secondaryOrders, error: secondaryError } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('table_id', secondaryTableId)
+                .neq('status', 'paid')
+                .neq('status', 'rejected');
+
+            if (secondaryError) throw secondaryError;
+
+            if (!primaryOrders || primaryOrders.length === 0 || !secondaryOrders || secondaryOrders.length === 0) {
+                alert('Both tables must have an active order to combine.');
+                return;
+            }
+
+            const keepOrder = primaryOrders[0];
+            const mergeOrder = secondaryOrders[0];
+
+            let mergedItems = [...keepOrder.items];
+            mergeOrder.items.forEach(item => {
+                if (item.type === 'METADATA' || item.type === 'PAYMENT_METADATA') return;
+                const idx = mergedItems.findIndex(
+                    i =>
+                        i.id === item.id &&
+                        !!i.isParcel === !!item.isParcel &&
+                        i.type !== 'METADATA' &&
+                        i.type !== 'PAYMENT_METADATA'
+                );
+                if (idx > -1) {
+                    mergedItems[idx] = {
+                        ...mergedItems[idx],
+                        qty: (mergedItems[idx].qty || 0) + (item.qty || 0),
+                    };
+                } else {
+                    mergedItems.push(item);
+                }
+            });
+
+            const mergedTotal = mergedItems
+                .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA')
+                .reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+
+            const { data: updatedKeep, error: updateError } = await supabase
+                .from('orders')
+                .update({ items: mergedItems, total: mergedTotal })
+                .eq('id', keepOrder.id)
+                .select()
+                .single();
+
+            if (updateError) throw updateError;
+
+            const { error: deleteError } = await supabase
+                .from('orders')
+                .delete()
+                .eq('id', mergeOrder.id);
+
+            if (deleteError) throw deleteError;
+
+            await supabase.from('tables').update({ is_free: true }).eq('id', secondaryTableId);
+            await supabase.from('tables').update({ is_free: false }).eq('id', primaryTableId);
+
+            setTables(prev =>
+                prev.map(t =>
+                    t.id === secondaryTableId
+                        ? { ...t, is_free: true }
+                        : t.id === primaryTableId
+                        ? { ...t, is_free: false }
+                        : t
+                )
+            );
+
+            setOrders(prev =>
+                prev
+                    .filter(o => o.id !== mergeOrder.id)
+                    .map(o => (o.id === keepOrder.id ? updatedKeep : o))
+            );
+
+            if (selectedTableOrder && selectedTableOrder.table_id === primaryTableId) {
+                setSelectedTableOrder(updatedKeep);
+            }
+        } catch (err) {
+            console.error('Error combining tables:', err.message);
+            alert('Failed to combine tables: ' + err.message);
         }
     };
 
@@ -1494,7 +1648,7 @@ const AdminPage = () => {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'flex', gap: '16px' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
                                 {selectedTableOrder.status === 'new' && (
                                     <button
                                         onClick={() => acceptOrder(selectedTableOrder.id, selectedTableOrder.table_id)}
@@ -1511,15 +1665,27 @@ const AdminPage = () => {
                                 </button>
                                 <button
                                     onClick={() => markTableFree(selectedTableOrder.table_id, 'Online')}
-                                    style={{ flex: 1, padding: '16px', backgroundColor: '#60a5fa', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: '#60a5fa', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Paid ONLINE
                                 </button>
                                 <button
                                     onClick={() => setInvoiceOrder(selectedTableOrder)}
-                                    style={{ flex: 1, padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Invoice
+                                </button>
+                                <button
+                                    onClick={() => transferOrderToTable(selectedTableOrder.id, selectedTableOrder.table_id)}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                >
+                                    Transfer Table
+                                </button>
+                                <button
+                                    onClick={() => combineTableWith(selectedTableOrder.table_id)}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                >
+                                    Combine Tables
                                 </button>
                             </div>
                         </div>

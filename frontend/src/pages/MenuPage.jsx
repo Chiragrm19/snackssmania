@@ -613,8 +613,8 @@ const MenuPage = () => {
                 <div className="animate-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
                     <div className="glass animate-fade" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '40px', textAlign: 'center' }}>
                         <h1 style={{ fontSize: '4rem', marginBottom: '16px' }}>❌</h1>
-                        <h2 style={{ fontSize: '1.8rem', fontWeight: '800', marginBottom: '12px', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>Order Unavailable</h2>
-                        <p style={{ color: 'var(--text-muted)', marginBottom: '32px', fontSize: '0.95rem' }}>We are sorry, but some items in your order are currently out of stock. Your order has been cancelled.</p>
+                        <h2 style={{ fontSize: '1.8rem', fontWeight: '800', marginBottom: '12px', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>Currently can't take order</h2>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '32px', fontSize: '0.95rem' }}>We're not able to accept this order right now. Please try again in a bit or ask the staff for help.</p>
                         <button
                             onClick={() => {
                                 setOrderStatus(null);
