@@ -136,21 +136,37 @@ const AdminPage = () => {
     const fetchInitialData = async () => {
         setLoading(true);
         await Promise.all([fetchTables(), fetchOrders(), fetchMenuItems(), fetchCategories(), fetchCustomers()]);
-        
-        // Auto-seed required drinks if missing
-        const requiredDrinks = [
-            { name: 'Water Bottle', price: 20, category: 'cold', emoji: '💧', description: 'Chilled mineral water', is_veg: true },
-            { name: 'Sprite', price: 40, category: 'cold', emoji: '🥤', description: 'Lemon-lime soda', is_veg: true },
-            { name: 'Thumbs Up', price: 40, category: 'cold', emoji: '🥤', description: 'Strong cola', is_veg: true },
-        ];
 
-        for (const drink of requiredDrinks) {
-            if (!menuItems.find(m => m.name.toLowerCase() === drink.name.toLowerCase())) {
-                await supabase.from('menu_items').insert(drink);
+        try {
+            // Always check against a fresh snapshot from DB to avoid duplicate inserts
+            const { data: currentMenu, error: menuError } = await supabase
+                .from('menu_items')
+                .select('name');
+
+            if (!menuError && currentMenu) {
+                const existingNames = new Set(
+                    currentMenu.map(m => (m.name || '').toLowerCase())
+                );
+
+                const requiredDrinks = [
+                    { name: 'Water Bottle', price: 20, category: 'cold', emoji: '💧', description: 'Chilled mineral water', is_veg: true },
+                    { name: 'Sprite', price: 40, category: 'cold', emoji: '🥤', description: 'Lemon-lime soda', is_veg: true },
+                    { name: 'Thumbs Up', price: 40, category: 'cold', emoji: '🥤', description: 'Strong cola', is_veg: true },
+                ];
+
+                const drinksToInsert = requiredDrinks.filter(
+                    drink => !existingNames.has(drink.name.toLowerCase())
+                );
+
+                if (drinksToInsert.length > 0) {
+                    await supabase.from('menu_items').insert(drinksToInsert);
+                }
             }
+        } catch (e) {
+            console.error('Error ensuring default drinks:', e);
         }
-        
-        await fetchMenuItems(); // Refresh after seeding
+
+        await fetchMenuItems(); // Refresh after any seeding
         setLoading(false);
     };
 
@@ -376,13 +392,35 @@ const AdminPage = () => {
 
     const rejectOrder = async (orderId) => {
         try {
+            const targetOrder = orders.find(o => o.id === orderId);
+
             const { error: orderError } = await supabase
                 .from('orders')
                 .update({ status: 'rejected' })
                 .eq('id', orderId);
 
             if (orderError) throw orderError;
-            
+
+            // If this was a dine-in table, immediately free it up
+            if (targetOrder && targetOrder.table_id > 0) {
+                await supabase
+                    .from('tables')
+                    .update({ is_free: true })
+                    .eq('id', targetOrder.table_id);
+
+                setTables(prev =>
+                    prev.map(t =>
+                        t.id === targetOrder.table_id ? { ...t, is_free: true } : t
+                    )
+                );
+
+                if (selectedTableOrder && selectedTableOrder.id === orderId) {
+                    setSelectedTableOrder(prev =>
+                        prev ? { ...prev, status: 'rejected' } : prev
+                    );
+                }
+            }
+
             setNewOrder(null);
             fetchOrders();
         } catch (err) {
@@ -431,13 +469,18 @@ const AdminPage = () => {
         }
     };
 
-    const handleUpdateItemQty = async (orderId, itemName, delta) => {
+    const handleUpdateItemQty = async (orderId, itemName, delta, isParcelFlag = null) => {
         try {
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
 
             let newItems = [...order.items];
-            const itemIdx = newItems.findIndex(i => i.name === itemName && !!i.isParcel === !!isParcel && i.type !== 'METADATA');
+            const itemIdx = newItems.findIndex(
+                i =>
+                    i.name === itemName &&
+                    !!i.isParcel === !!isParcelFlag &&
+                    i.type !== 'METADATA'
+            );
             
             if (itemIdx === -1) return;
 
