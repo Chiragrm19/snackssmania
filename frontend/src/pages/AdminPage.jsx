@@ -397,14 +397,18 @@ const AdminPage = () => {
         }
     };
 
-    const rejectOrder = async (orderId) => {
+    const rejectOrder = async (orderOrId) => {
         try {
+            const passedOrder = typeof orderOrId === 'object' && orderOrId !== null ? orderOrId : null;
+            const rawId = passedOrder ? passedOrder.id : orderOrId;
             const normalizedOrderId =
-                typeof orderId === 'string' && orderId.trim() !== '' && !Number.isNaN(Number(orderId))
-                    ? Number(orderId)
-                    : orderId;
+                typeof rawId === 'string' && rawId.trim() !== '' && !Number.isNaN(Number(rawId))
+                    ? Number(rawId)
+                    : rawId;
 
-            const targetOrder = orders.find(o => o.id === normalizedOrderId || o.id === orderId);
+            // Try to find from local state, but fall back to passed order (from popup) if not yet in orders[]
+            const targetOrder =
+                orders.find(o => o.id === normalizedOrderId || o.id === rawId) || passedOrder;
 
             // Hard delete the order so it cannot be reused/merged
             const { error: deleteError } = await supabase
@@ -433,13 +437,13 @@ const AdminPage = () => {
                     )
                 );
 
-                if (selectedTableOrder && (selectedTableOrder.id === normalizedOrderId || selectedTableOrder.id === orderId)) {
+                if (selectedTableOrder && (selectedTableOrder.id === normalizedOrderId || selectedTableOrder.id === rawId)) {
                     setSelectedTableOrder(null);
                 }
             }
 
             // Remove from local state so UI immediately reflects dismissal
-            setOrders(prev => prev.filter(o => o.id !== normalizedOrderId && o.id !== orderId));
+            setOrders(prev => prev.filter(o => o.id !== normalizedOrderId && o.id !== rawId));
             setNewOrder(null);
         } catch (err) {
             console.error('Error rejecting order:', err.message);
@@ -1664,7 +1668,7 @@ const AdminPage = () => {
                 <OrderPopup
                     order={newOrder}
                     onAccept={acceptOrder}
-                    onDismiss={() => rejectOrder(newOrder.id)}
+                    onDismiss={() => rejectOrder(newOrder)}
                     onUpdateItemQty={handleUpdateItemQty}
                 />
             )}
