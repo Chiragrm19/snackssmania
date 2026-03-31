@@ -16,6 +16,7 @@ const MenuPage = () => {
     const [displayOrderId, setDisplayOrderId] = useState(null);
     const [showThankYou, setShowThankYou] = useState(false);
     const [showReview, setShowReview] = useState(false);
+    const [isParcelOrder, setIsParcelOrder] = useState(false); 
     const [lastOrderedItems, setLastOrderedItems] = useState([]);
     const wasOccupied = useRef(false);
 
@@ -163,6 +164,7 @@ const MenuPage = () => {
         try {
             const cartItems = Object.values(cart);
             const cartTotal = cartItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+            let finalOrderItems = [];
 
             // Only pure parcel QR scans have tableId === '0'. 
             const scannedTableId = parseInt(tableId);
@@ -226,6 +228,7 @@ const MenuPage = () => {
                     .eq('id', existingOrder.id);
 
                 if (updateError) throw updateError;
+                finalOrderItems = updatedItems;
             } else {
                 // Insert brand new order
                 let finalItems = cartItems.map(i => ({ 
@@ -268,9 +271,10 @@ const MenuPage = () => {
                         setDisplayOrderId(newOrderData.id);
                     }
                 }
+                finalOrderItems = finalItems;
             }
 
-            setLastOrderedItems(updatedItems || finalItems);
+            setLastOrderedItems(finalOrderItems);
             setOrderStatus('success');
             setCart({});
         } catch (err) {
