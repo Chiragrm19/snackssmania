@@ -1715,25 +1715,25 @@ const AdminPage = () => {
                                 )}
                                 <button
                                     onClick={() => markTableFree(selectedTableOrder.table_id, 'Cash')}
-                                    style={{ flex: 1, padding: '100px', backgroundColor: '#fbbf24', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ flex: 1, padding: '16px', backgroundColor: '#fbbf24', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Paid CASH
                                 </button>
                                 <button
                                     onClick={() => markTableFree(selectedTableOrder.table_id, 'Online')}
-                                    style={{ flex: 1, minWidth: '100px', padding: '16px', backgroundColor: '#60a5fa', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: '#60a5fa', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Paid ONLINE
                                 </button>
                                 <button
                                     onClick={() => setInvoiceOrder(selectedTableOrder)}
-                                    style={{ flex: 1, minWidth: '100px', padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Invoice
                                 </button>
                                 <button
                                     onClick={() => transferOrderToTable(selectedTableOrder.id, selectedTableOrder.table_id)}
-                                    style={{ flex: 1, minWidth: '100px', padding: '16px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ flex: 1, minWidth: '140px', padding: '16px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Transfer Table
                                 </button>
@@ -1789,7 +1789,7 @@ const AdminPage = () => {
                                 right: '20px', 
                                 background: 'var(--glass)', 
                                 border: '1px solid var(--border-subtle)', 
-                                width: '36px', 
+                                width: '20px', 
                                 height: '36px', 
                                 borderRadius: '18px', 
                                 color: 'white', 
