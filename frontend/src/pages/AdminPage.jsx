@@ -694,9 +694,12 @@ const AdminPage = () => {
         }
     };
 
-    const combineTableWith = async (primaryTableId) => {
-        const input = prompt('Combine this table with which table number?');
-        const secondaryTableId = Number(input);
+    const combineTableWith = async (primaryTableId, secondaryFromDrag = null) => {
+        let secondaryTableId = secondaryFromDrag;
+        if (!secondaryTableId) {
+            const input = prompt('Combine this table with which table number?');
+            secondaryTableId = Number(input);
+        }
         if (!secondaryTableId || secondaryTableId === primaryTableId) return;
 
         try {
@@ -750,9 +753,23 @@ const AdminPage = () => {
                 .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA')
                 .reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
+            // Update or add TABLE_GROUP metadata so header can show "Table X & Y"
+            const allTableIds = Array.from(new Set([primaryTableId, secondaryTableId]));
+            let itemsWithMeta = [...mergedItems];
+            const existingGroupIdx = itemsWithMeta.findIndex(i => i.type === 'TABLE_GROUP');
+            if (existingGroupIdx > -1) {
+                const existing = itemsWithMeta[existingGroupIdx];
+                const combined = Array.from(
+                    new Set([...(existing.tables || []), ...allTableIds])
+                );
+                itemsWithMeta[existingGroupIdx] = { ...existing, tables: combined };
+            } else {
+                itemsWithMeta.unshift({ type: 'TABLE_GROUP', tables: allTableIds });
+            }
+
             const { data: updatedKeep, error: updateError } = await supabase
                 .from('orders')
-                .update({ items: mergedItems, total: mergedTotal })
+                .update({ items: itemsWithMeta, total: mergedTotal })
                 .eq('id', keepOrder.id)
                 .select()
                 .single();
@@ -785,7 +802,7 @@ const AdminPage = () => {
                     .map(o => (o.id === keepOrder.id ? updatedKeep : o))
             );
 
-            if (selectedTableOrder && selectedTableOrder.table_id === primaryTableId) {
+            if (selectedTableOrder && (selectedTableOrder.id === keepOrder.id || selectedTableOrder.table_id === primaryTableId)) {
                 setSelectedTableOrder(updatedKeep);
             }
         } catch (err) {
@@ -802,6 +819,8 @@ const AdminPage = () => {
             setSelectedTableOrder(tableOrder);
         }
     };
+
+    const [dragSourceTableId, setDragSourceTableId] = useState(null);
 
     const getStats = () => {
         const occupiedTableIds = new Set(
@@ -1268,8 +1287,22 @@ const AdminPage = () => {
                             const isOccupied = (!hasNewOrder && tableOrder) || (!table.is_free && !hasNewOrder);
 
                             return (
-                                <div
+                            <div
                                     key={table.id}
+                                    draggable
+                                    onDragStart={() => setDragSourceTableId(table.id)}
+                                    onDragOver={(e) => {
+                                        if (dragSourceTableId && dragSourceTableId !== table.id) {
+                                            e.preventDefault();
+                                        }
+                                    }}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        if (dragSourceTableId && dragSourceTableId !== table.id) {
+                                            combineTableWith(table.id, dragSourceTableId);
+                                            setDragSourceTableId(null);
+                                        }
+                                    }}
                                     onClick={() => handleTableClick(table)}
                                     className="glass"
                                     style={{
@@ -1471,15 +1504,38 @@ const AdminPage = () => {
                     }}>
                         <div className="glass animate-fade" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center' }}>
-                                <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
-                                    {(() => {
-                                        if (selectedTableOrder.table_id === 0) {
-                                            const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
-                                            return `Parcel Order #${meta ? `P-${meta.takeaway_no}` : selectedTableOrder.id}`;
-                                        }
-                                        return `Table ${selectedTableOrder.table_id} Order`;
-                                    })()}
-                                </h2>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
+                                        {(() => {
+                                            if (selectedTableOrder.table_id === 0) {
+                                                const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
+                                                return `Parcel Order #${meta ? `P-${meta.takeaway_no}` : selectedTableOrder.id}`;
+                                            }
+                                            const groupMeta = selectedTableOrder.items.find(i => i.type === 'TABLE_GROUP');
+                                            if (groupMeta && Array.isArray(groupMeta.tables) && groupMeta.tables.length > 1) {
+                                                const sorted = [...groupMeta.tables].sort((a, b) => a - b);
+                                                return `Table ${sorted.join(' & ')} Order`;
+                                            }
+                                            return `Table ${selectedTableOrder.table_id} Order`;
+                                        })()}
+                                    </h2>
+                                    {selectedTableOrder.table_id !== 0 && (
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                                            <button
+                                                onClick={() => transferOrderToTable(selectedTableOrder.id, selectedTableOrder.table_id)}
+                                                style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '999px', border: '1px solid var(--border-subtle)', backgroundColor: 'var(--glass)', color: 'var(--text-main)', cursor: 'pointer' }}
+                                            >
+                                                Transfer
+                                            </button>
+                                            <button
+                                                onClick={() => combineTableWith(selectedTableOrder.table_id)}
+                                                style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '999px', border: '1px solid var(--border-subtle)', backgroundColor: 'var(--glass)', color: 'var(--text-main)', cursor: 'pointer' }}
+                                            >
+                                                Combine
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                                 <button onClick={() => setSelectedTableOrder(null)} style={{ backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', fontSize: '1.2rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>✕</button>
                             </div>
 
