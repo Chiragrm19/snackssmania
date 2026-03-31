@@ -1638,6 +1638,7 @@ const AdminPage = () => {
                     order={newOrder}
                     onAccept={acceptOrder}
                     onDismiss={() => rejectOrder(newOrder.id)}
+                    onUpdateItemQty={handleUpdateItemQty}
                 />
             )}
 

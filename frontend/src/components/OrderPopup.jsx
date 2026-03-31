@@ -1,6 +1,6 @@
 import React from 'react';
 
-const OrderPopup = ({ order, onAccept, onDismiss }) => {
+const OrderPopup = ({ order, onAccept, onDismiss, onUpdateItemQty }) => {
     if (!order) return null;
 
     return (
@@ -60,38 +60,92 @@ const OrderPopup = ({ order, onAccept, onDismiss }) => {
                     </div>
 
                     <div className="items-list" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {order.items.filter(i => i.type !== 'METADATA').map((item, idx) => (
-                            <div key={idx} className={item.isNew ? "premium-border" : ""} style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontSize: '1.05rem',
-                                color: 'var(--text-main)',
-                                border: item.isNew ? 'none' : '1px solid var(--border-subtle)',
-                                borderRadius: '12px',
-                                padding: '12px 16px',
-                                backgroundColor: 'var(--bg-surface)'
-                            }}>
-                                <span style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                    <span style={{ 
-                                        color: 'var(--bg-dark)', 
-                                        backgroundColor: 'var(--accent-white)',
-                                        width: '24px', 
-                                        height: '24px', 
-                                        borderRadius: '6px', 
-                                        display: 'flex', 
-                                        alignItems: 'center', 
-                                        justifyContent: 'center',
-                                        fontSize: '0.8rem',
-                                        fontWeight: '700'
-                                    }}>
-                                        {item.qty}
+                        {order.items
+                            .filter(i => i.type !== 'METADATA')
+                            .map((item, idx) => (
+                                <div
+                                    key={idx}
+                                    className={item.isNew ? 'premium-border' : ''}
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        fontSize: '1.05rem',
+                                        color: 'var(--text-main)',
+                                        border: item.isNew ? 'none' : '1px solid var(--border-subtle)',
+                                        borderRadius: '12px',
+                                        padding: '12px 16px',
+                                        backgroundColor: 'var(--bg-surface)',
+                                    }}
+                                >
+                                    <span style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                backgroundColor: 'var(--glass)',
+                                                padding: '4px 8px',
+                                                borderRadius: '10px',
+                                                border: '1px solid var(--border-subtle)',
+                                            }}
+                                        >
+                                            <button
+                                                onClick={() =>
+                                                    onUpdateItemQty &&
+                                                    onUpdateItemQty(order.id, item.name, -1, item.isParcel)
+                                                }
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--text-main)',
+                                                    fontSize: '1.1rem',
+                                                    cursor: 'pointer',
+                                                    padding: '0 4px',
+                                                    fontWeight: 'bold',
+                                                }}
+                                            >
+                                                −
+                                            </button>
+                                            <span
+                                                style={{
+                                                    color: 'var(--bg-dark)',
+                                                    backgroundColor: 'var(--accent-white)',
+                                                    width: '24px',
+                                                    height: '24px',
+                                                    borderRadius: '6px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '0.8rem',
+                                                    fontWeight: '700',
+                                                }}
+                                            >
+                                                {item.qty}
+                                            </span>
+                                            <button
+                                                onClick={() =>
+                                                    onUpdateItemQty &&
+                                                    onUpdateItemQty(order.id, item.name, 1, item.isParcel)
+                                                }
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--text-main)',
+                                                    fontSize: '1.1rem',
+                                                    cursor: 'pointer',
+                                                    padding: '0 4px',
+                                                    fontWeight: 'bold',
+                                                }}
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                        <span style={{ fontWeight: '500' }}>{item.name}</span>
                                     </span>
-                                    <span style={{ fontWeight: '500' }}>{item.name}</span>
-                                </span>
-                                <span style={{ fontWeight: '600' }}>₹{item.price * item.qty}</span>
-                            </div>
-                        ))}
+                                    <span style={{ fontWeight: '600' }}>₹{item.price * item.qty}</span>
+                                </div>
+                            ))}
                     </div>
 
                     <div style={{
