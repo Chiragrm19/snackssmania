@@ -16,7 +16,7 @@ const MenuPage = () => {
     const [displayOrderId, setDisplayOrderId] = useState(null);
     const [showThankYou, setShowThankYou] = useState(false);
     const [showReview, setShowReview] = useState(false);
-    const [isParcelOrder, setIsParcelOrder] = useState(false); // Renamed from isTakeawayOrder
+    const [lastOrderedItems, setLastOrderedItems] = useState([]);
     const wasOccupied = useRef(false);
 
     const location = useLocation();
@@ -270,6 +270,7 @@ const MenuPage = () => {
                 }
             }
 
+            setLastOrderedItems(updatedItems || finalItems);
             setOrderStatus('success');
             setCart({});
         } catch (err) {
@@ -307,27 +308,95 @@ const MenuPage = () => {
     }
 
     if (orderStatus === 'success') {
+        const orderTotal = lastOrderedItems.reduce((acc, curr) => acc + (curr.price * (curr.qty || 0)), 0);
         return (
-            <div className="animate-fade" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: '100vh', padding: '24px', background: 'var(--bg-dark)' }}>
-                <div className="success-checkmark animate-float">✓</div>
-                <h1 style={{ fontSize: '2.8rem', marginBottom: '12px', fontWeight: '800', letterSpacing: '-0.05em', background: 'linear-gradient(135deg, #fff 0%, #a0a0c0 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <div className="animate-fade" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', textAlign: 'center', minHeight: '100vh', padding: '40px 24px', background: 'var(--bg-dark)', overflowY: 'auto' }}>
+                <div className="success-checkmark animate-float" style={{ marginBottom: '24px' }}>✓</div>
+                <h1 style={{ fontSize: '2.4rem', marginBottom: '8px', fontWeight: '800', letterSpacing: '-0.05em', background: 'linear-gradient(135deg, #fff 0%, #a0a0c0 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                     Order Placed.
                 </h1>
-                <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', marginBottom: '40px', lineHeight: '1.6', fontWeight: '500', maxWidth: '280px' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '1rem', marginBottom: '32px', lineHeight: '1.4', fontWeight: '500', maxWidth: '280px' }}>
                     {isTakeaway
                         ? `Your order #${displayOrderId} is being prepared.`
                         : `Table ${tableId} — we're on it.`}
                 </p>
 
-                <div className="glass" style={{ padding: '28px 32px', borderRadius: '24px', width: '100%', maxWidth: '320px', marginBottom: '32px', borderTopColor: 'rgba(255,255,255,0.18)' }}>
-                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '700', marginBottom: '8px' }}>Estimated Wait</p>
-                    <p style={{ fontSize: '2.4rem', fontWeight: '800', color: 'var(--text-main)', letterSpacing: '-0.04em', lineHeight: 1 }}>15–20</p>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-faint)', fontWeight: '500', marginTop: '4px' }}>minutes</p>
+                {/* Order Summary Card */}
+                <div className="glass" style={{ 
+                    padding: '24px', 
+                    borderRadius: '28px', 
+                    width: '100%', 
+                    maxWidth: '360px', 
+                    marginBottom: '32px', 
+                    textAlign: 'left',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(255,255,255,0.03)'
+                }}>
+                    <h3 style={{ fontSize: '0.8rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '700', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '12px' }}>
+                        Order Summary
+                    </h3>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                        {lastOrderedItems.filter(i => i.type !== 'METADATA' && i.type !== 'LINK').map((item, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <span style={{ 
+                                        minWidth: '24px', 
+                                        height: '24px', 
+                                        borderRadius: '6px', 
+                                        background: 'rgba(255,255,255,0.1)', 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: 'center',
+                                        fontSize: '0.75rem',
+                                        fontWeight: '700',
+                                        color: 'var(--text-main)'
+                                    }}>
+                                        {item.qty}x
+                                    </span>
+                                    <div>
+                                        <p style={{ fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-main)', lineHeight: 1.2 }}>{item.name}</p>
+                                        {item.isParcel && <span style={{ fontSize: '0.7rem', color: 'var(--accent-orange)', fontWeight: '700', textTransform: 'uppercase' }}>📦 Parcel</span>}
+                                    </div>
+                                </div>
+                                <span style={{ fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-muted)' }}>₹{item.price * item.qty}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        paddingTop: '20px', 
+                        borderTop: '2px dashed rgba(255,255,255,0.1)' 
+                    }}>
+                        <span style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--text-main)' }}>Total Amount</span>
+                        <span style={{ fontSize: '1.4rem', fontWeight: '800', color: 'var(--text-main)' }}>₹{orderTotal}</span>
+                    </div>
+                </div>
+
+                <div className="glass" style={{ padding: '20px', borderRadius: '24px', width: '100%', maxWidth: '360px', marginBottom: '32px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <p style={{ fontSize: '0.7rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '700', marginBottom: '4px' }}>Estimated Wait</p>
+                    <p style={{ fontSize: '1.8rem', fontWeight: '800', color: 'var(--text-main)', letterSpacing: '-0.02em', lineHeight: 1 }}>15–20 <span style={{ fontSize: '0.9rem', color: 'var(--text-faint)', fontWeight: '500' }}>mins</span></p>
                 </div>
 
                 <button
                     onClick={() => setOrderStatus(null)}
-                    style={{ padding: '14px 32px', background: 'linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 100%)', border: '1px solid rgba(255,255,255,0.12)', borderTopColor: 'rgba(255,255,255,0.22)', color: 'var(--text-main)', borderRadius: '24px', fontSize: '1rem', fontWeight: '700', boxShadow: '0 4px 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)' }}
+                    style={{ 
+                        padding: '16px 40px', 
+                        background: 'var(--text-main)', 
+                        border: 'none',
+                        color: 'var(--bg-dark)', 
+                        borderRadius: '24px', 
+                        fontSize: '1rem', 
+                        fontWeight: '800', 
+                        boxShadow: '0 8px 32px rgba(255,255,255,0.15)',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s'
+                    }}
+                    onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+                    onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
                 >
                     + Order More
                 </button>
