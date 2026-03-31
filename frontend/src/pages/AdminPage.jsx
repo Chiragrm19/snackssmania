@@ -138,15 +138,14 @@ const AdminPage = () => {
         await Promise.all([fetchTables(), fetchOrders(), fetchMenuItems(), fetchCategories(), fetchCustomers()]);
 
         try {
-            // Always check against a fresh snapshot from DB to avoid duplicate inserts
-            const { data: currentMenu, error: menuError } = await supabase
-                .from('menu_items')
-                .select('name');
+            const todayKey = `seed_default_drinks_${new Date().toISOString().split('T')[0]}`;
+            const alreadySeeded = sessionStorage.getItem(todayKey);
 
-            if (!menuError && currentMenu) {
-                const existingNames = new Set(
-                    currentMenu.map(m => (m.name || '').toLowerCase())
-                );
+            // Always check against a fresh snapshot from DB to avoid duplicate inserts
+            const { data: currentMenu, error: menuError } = await supabase.from('menu_items').select('name');
+
+            if (!alreadySeeded && !menuError && currentMenu) {
+                const existingNames = new Set(currentMenu.map(m => (m.name || '').toLowerCase().trim()));
 
                 const requiredDrinks = [
                     { name: 'Water Bottle', price: 20, category: 'cold', emoji: '💧', description: 'Chilled mineral water', is_veg: true },
@@ -155,12 +154,19 @@ const AdminPage = () => {
                 ];
 
                 const drinksToInsert = requiredDrinks.filter(
-                    drink => !existingNames.has(drink.name.toLowerCase())
+                    drink => !existingNames.has(drink.name.toLowerCase().trim())
                 );
 
                 if (drinksToInsert.length > 0) {
-                    await supabase.from('menu_items').insert(drinksToInsert);
+                    // Try upsert (requires unique constraint). If it fails, fall back to insert.
+                    try {
+                        await supabase.from('menu_items').upsert(requiredDrinks, { onConflict: 'name' });
+                    } catch {
+                        await supabase.from('menu_items').insert(drinksToInsert);
+                    }
                 }
+
+                sessionStorage.setItem(todayKey, '1');
             }
         } catch (e) {
             console.error('Error ensuring default drinks:', e);
@@ -303,7 +309,8 @@ const AdminPage = () => {
                     .from('orders')
                     .select('*')
                     .eq('table_id', tableId)
-                    .neq('status', 'paid');
+                    .neq('status', 'paid')
+                    .neq('status', 'rejected');
                 
                 if (data && data.length > 0) {
                     orderToUpdate = data[0]; // Take the first active order for this table
@@ -392,25 +399,38 @@ const AdminPage = () => {
 
     const rejectOrder = async (orderId) => {
         try {
+            const normalizedOrderId =
+                typeof orderId === 'string' && orderId.trim() !== '' && !Number.isNaN(Number(orderId))
+                    ? Number(orderId)
+                    : orderId;
+
             const targetOrder = orders.find(o => o.id === orderId);
 
-            const { error: orderError } = await supabase
+            const { data: updatedOrder, error: orderError } = await supabase
                 .from('orders')
                 .update({ status: 'rejected' })
-                .eq('id', orderId);
+                .eq('id', normalizedOrderId)
+                .select()
+                .single();
 
             if (orderError) throw orderError;
 
             // If this was a dine-in table, immediately free it up
-            if (targetOrder && targetOrder.table_id > 0) {
+            const tableIdToFree = updatedOrder?.table_id ?? targetOrder?.table_id;
+            if (tableIdToFree && Number(tableIdToFree) > 0) {
+                const normalizedTableId =
+                    typeof tableIdToFree === 'string' && !Number.isNaN(Number(tableIdToFree))
+                        ? Number(tableIdToFree)
+                        : tableIdToFree;
+
                 await supabase
                     .from('tables')
                     .update({ is_free: true })
-                    .eq('id', targetOrder.table_id);
+                    .eq('id', normalizedTableId);
 
                 setTables(prev =>
                     prev.map(t =>
-                        t.id === targetOrder.table_id ? { ...t, is_free: true } : t
+                        t.id === normalizedTableId ? { ...t, is_free: true } : t
                     )
                 );
 
@@ -421,6 +441,7 @@ const AdminPage = () => {
                 }
             }
 
+            setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
             setNewOrder(null);
             fetchOrders();
         } catch (err) {
@@ -509,6 +530,9 @@ const AdminPage = () => {
             if (error) throw error;
 
             setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+            if (newOrder && newOrder.id === orderId) {
+                setNewOrder(updatedOrder); // Keep popup UI in sync
+            }
             if (selectedTableOrder && selectedTableOrder.id === orderId) {
                 setSelectedTableOrder(updatedOrder);
             }
@@ -616,14 +640,18 @@ const AdminPage = () => {
     };
 
     const handleTableClick = (table) => {
-        const tableOrder = orders.find(o => o.table_id === table.id && o.status !== 'paid');
+        const tableOrder = orders.find(
+            o => o.table_id === table.id && o.status !== 'paid' && o.status !== 'rejected'
+        );
         if (tableOrder) {
             setSelectedTableOrder(tableOrder);
         }
     };
 
     const getStats = () => {
-        const occupiedTableIds = new Set(orders.filter(o => o.status !== 'paid').map(o => o.table_id));
+        const occupiedTableIds = new Set(
+            orders.filter(o => o.status !== 'paid' && o.status !== 'rejected').map(o => o.table_id)
+        );
         const occupied = occupiedTableIds.size;
         const free = tables.length - occupied;
         const activeOrders = orders.length;
@@ -1078,9 +1106,11 @@ const AdminPage = () => {
                  ) : activeTab === 'floor' ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
                         {tables.map(table => {
-                            const tableOrder = orders.find(o => o.table_id === table.id && o.status !== 'paid');
-                            const isOccupied = (tableOrder && tableOrder.status !== 'new') || !table.is_free;
+                            const tableOrder = orders.find(
+                                o => o.table_id === table.id && o.status !== 'paid' && o.status !== 'rejected'
+                            );
                             const hasNewOrder = tableOrder?.status === 'new';
+                            const isOccupied = (!hasNewOrder && tableOrder) || (!table.is_free && !hasNewOrder);
 
                             return (
                                 <div

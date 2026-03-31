@@ -173,6 +173,7 @@ const MenuPage = () => {
                 .select('*')
                 .eq('table_id', effectiveTableId)
                 .neq('status', 'paid')
+                .neq('status', 'rejected')
                 .maybeSingle();
 
             if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
