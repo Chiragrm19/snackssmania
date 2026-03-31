@@ -404,19 +404,18 @@ const AdminPage = () => {
                     ? Number(orderId)
                     : orderId;
 
-            const targetOrder = orders.find(o => o.id === orderId);
+            const targetOrder = orders.find(o => o.id === normalizedOrderId || o.id === orderId);
 
-            const { data: updatedOrder, error: orderError } = await supabase
+            // Hard delete the order so it cannot be reused/merged
+            const { error: deleteError } = await supabase
                 .from('orders')
-                .update({ status: 'rejected' })
-                .eq('id', normalizedOrderId)
-                .select()
-                .single();
+                .delete()
+                .eq('id', normalizedOrderId);
 
-            if (orderError) throw orderError;
+            if (deleteError) throw deleteError;
 
             // If this was a dine-in table, immediately free it up
-            const tableIdToFree = updatedOrder?.table_id ?? targetOrder?.table_id;
+            const tableIdToFree = targetOrder?.table_id;
             if (tableIdToFree && Number(tableIdToFree) > 0) {
                 const normalizedTableId =
                     typeof tableIdToFree === 'string' && !Number.isNaN(Number(tableIdToFree))
@@ -434,16 +433,14 @@ const AdminPage = () => {
                     )
                 );
 
-                if (selectedTableOrder && selectedTableOrder.id === orderId) {
-                    setSelectedTableOrder(prev =>
-                        prev ? { ...prev, status: 'rejected' } : prev
-                    );
+                if (selectedTableOrder && (selectedTableOrder.id === normalizedOrderId || selectedTableOrder.id === orderId)) {
+                    setSelectedTableOrder(null);
                 }
             }
 
-            setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+            // Remove from local state so UI immediately reflects dismissal
+            setOrders(prev => prev.filter(o => o.id !== normalizedOrderId && o.id !== orderId));
             setNewOrder(null);
-            fetchOrders();
         } catch (err) {
             console.error('Error rejecting order:', err.message);
             alert('Failed to dismiss order: ' + err.message);
