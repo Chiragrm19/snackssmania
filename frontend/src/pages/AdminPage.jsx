@@ -37,6 +37,9 @@ const AdminPage = () => {
     const [payPhone, setPayPhone] = useState('');
     const [payName, setPayName] = useState('');
     const [payExists, setPayExists] = useState(false);
+    const [handoverOrderId, setHandoverOrderId] = useState(null);
+    const [showTransferModal, setShowTransferModal] = useState(null);
+    const [showCombineModal, setShowCombineModal] = useState(null);
     
     // Security Utility: Sanitize inputs to prevent XSS
     const sanitize = (str) => {
@@ -136,43 +139,6 @@ const AdminPage = () => {
     const fetchInitialData = async () => {
         setLoading(true);
         await Promise.all([fetchTables(), fetchOrders(), fetchMenuItems(), fetchCategories(), fetchCustomers()]);
-
-        try {
-            const todayKey = `seed_default_drinks_${new Date().toISOString().split('T')[0]}`;
-            const alreadySeeded = sessionStorage.getItem(todayKey);
-
-            // Always check against a fresh snapshot from DB to avoid duplicate inserts
-            const { data: currentMenu, error: menuError } = await supabase.from('menu_items').select('name');
-
-            if (!alreadySeeded && !menuError && currentMenu) {
-                const existingNames = new Set(currentMenu.map(m => (m.name || '').toLowerCase().trim()));
-
-                const requiredDrinks = [
-                    { name: 'Water Bottle', price: 20, category: 'cold', emoji: '💧', description: 'Chilled mineral water', is_veg: true },
-                    { name: 'Sprite', price: 40, category: 'cold', emoji: '🥤', description: 'Lemon-lime soda', is_veg: true },
-                    { name: 'Thumbs Up', price: 40, category: 'cold', emoji: '🥤', description: 'Strong cola', is_veg: true },
-                ];
-
-                const drinksToInsert = requiredDrinks.filter(
-                    drink => !existingNames.has(drink.name.toLowerCase().trim())
-                );
-
-                if (drinksToInsert.length > 0) {
-                    // Try upsert (requires unique constraint). If it fails, fall back to insert.
-                    try {
-                        await supabase.from('menu_items').upsert(requiredDrinks, { onConflict: 'name' });
-                    } catch {
-                        await supabase.from('menu_items').insert(drinksToInsert);
-                    }
-                }
-
-                sessionStorage.setItem(todayKey, '1');
-            }
-        } catch (e) {
-            console.error('Error ensuring default drinks:', e);
-        }
-
-        await fetchMenuItems(); // Refresh after any seeding
         setLoading(false);
     };
 
@@ -546,6 +512,13 @@ const AdminPage = () => {
 
     const markTableFree = async (tableId, paymentMethod = null) => {
         try {
+            // Free any linked tables
+            const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && o.items[0].targetTable === tableId);
+            for (const linked of linkedOrders) {
+                await supabase.from('tables').update({ is_free: true }).eq('id', linked.table_id);
+                await supabase.from('orders').update({ status: 'paid' }).eq('id', linked.id);
+            }
+
             // Save/Update Customer Info if provided
             if (payPhone && payName) {
                 const { error: custError } = await supabase
@@ -601,15 +574,33 @@ const AdminPage = () => {
         }
     };
 
-    const completeTakeaway = async (orderId) => {
+    const completeTakeaway = async (orderId, paymentMethod) => {
         try {
+            const updates = { status: 'paid' };
+            if (paymentMethod) updates.payment_method = paymentMethod;
+
             const { error } = await supabase.from('orders')
-                .update({ status: 'paid' })
+                .update(updates)
                 .eq('id', orderId);
             
-            if (error) throw error;
+            if (error) {
+                if (error.message.includes('payment_method')) {
+                    const { data: orderToFix } = await supabase.from('orders').select('items').eq('id', orderId).maybeSingle();
+                    if (orderToFix) {
+                        const fixedItems = [...orderToFix.items, { type: 'PAYMENT_METADATA', method: paymentMethod }];
+                        await supabase.from('orders').update({ 
+                            status: 'paid', 
+                            items: fixedItems 
+                        }).eq('id', orderId);
+                    }
+                } else {
+                    throw error;
+                }
+            }
+
             setOrders(prev => prev.filter(o => o.id !== orderId));
             alert('Parcel Handed Over Successfully!');
+            fetchInitialData();
         } catch (err) {
             console.error('Error completing takeaway:', err.message);
             alert('Failed to complete takeaway: ' + err.message);
@@ -642,9 +633,7 @@ const AdminPage = () => {
         }
     };
 
-    const transferOrderToTable = async (orderId, fromTableId) => {
-        const input = prompt('Transfer this order to which table number?');
-        const toTableId = Number(input);
+    const transferOrderToTable = async (orderId, fromTableId, toTableId) => {
         if (!toTableId || toTableId === fromTableId) return;
 
         try {
@@ -694,9 +683,7 @@ const AdminPage = () => {
         }
     };
 
-    const combineTableWith = async (primaryTableId) => {
-        const input = prompt('Combine this table with which table number?');
-        const secondaryTableId = Number(input);
+    const combineTableWith = async (primaryTableId, secondaryTableId) => {
         if (!secondaryTableId || secondaryTableId === primaryTableId) return;
 
         try {
@@ -718,36 +705,39 @@ const AdminPage = () => {
 
             if (secondaryError) throw secondaryError;
 
-            if (!primaryOrders || primaryOrders.length === 0 || !secondaryOrders || secondaryOrders.length === 0) {
-                alert('Both tables must have an active order to combine.');
+            if (!primaryOrders || primaryOrders.length === 0) {
+                alert('Primary table must have an active order to combine into.');
                 return;
             }
 
             const keepOrder = primaryOrders[0];
-            const mergeOrder = secondaryOrders[0];
+            const mergeOrder = secondaryOrders && secondaryOrders.length > 0 ? secondaryOrders[0] : null;
 
             let mergedItems = [...keepOrder.items];
-            mergeOrder.items.forEach(item => {
-                if (item.type === 'METADATA' || item.type === 'PAYMENT_METADATA') return;
-                const idx = mergedItems.findIndex(
-                    i =>
-                        i.id === item.id &&
-                        !!i.isParcel === !!item.isParcel &&
-                        i.type !== 'METADATA' &&
-                        i.type !== 'PAYMENT_METADATA'
-                );
-                if (idx > -1) {
-                    mergedItems[idx] = {
-                        ...mergedItems[idx],
-                        qty: (mergedItems[idx].qty || 0) + (item.qty || 0),
-                    };
-                } else {
-                    mergedItems.push(item);
-                }
-            });
+            if (mergeOrder) {
+                mergeOrder.items.forEach(item => {
+                    if (item.type === 'METADATA' || item.type === 'PAYMENT_METADATA' || item.type === 'LINK') return;
+                    const idx = mergedItems.findIndex(
+                        i =>
+                            i.id === item.id &&
+                            !!i.isParcel === !!item.isParcel &&
+                            i.type !== 'METADATA' &&
+                            i.type !== 'PAYMENT_METADATA' &&
+                            i.type !== 'LINK'
+                    );
+                    if (idx > -1) {
+                        mergedItems[idx] = {
+                            ...mergedItems[idx],
+                            qty: (mergedItems[idx].qty || 0) + (item.qty || 0),
+                        };
+                    } else {
+                        mergedItems.push(item);
+                    }
+                });
+            }
 
             const mergedTotal = mergedItems
-                .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA')
+                .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA' && i.type !== 'LINK')
                 .reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
             const { data: updatedKeep, error: updateError } = await supabase
@@ -759,31 +749,36 @@ const AdminPage = () => {
 
             if (updateError) throw updateError;
 
-            const { error: deleteError } = await supabase
-                .from('orders')
-                .delete()
-                .eq('id', mergeOrder.id);
+            if (mergeOrder) {
+                const { error: updateLinkError } = await supabase
+                    .from('orders')
+                    .update({ items: [{ type: 'LINK', targetTable: primaryTableId }], total: 0 })
+                    .eq('id', mergeOrder.id);
+                if (updateLinkError) throw updateLinkError;
+            } else {
+                const { error: insertLinkError } = await supabase
+                    .from('orders')
+                    .insert({ 
+                        table_id: secondaryTableId, 
+                        items: [{ type: 'LINK', targetTable: primaryTableId }], 
+                        total: 0, 
+                        status: 'preparing' 
+                    });
+                if (insertLinkError) throw insertLinkError;
+            }
 
-            if (deleteError) throw deleteError;
-
-            await supabase.from('tables').update({ is_free: true }).eq('id', secondaryTableId);
+            await supabase.from('tables').update({ is_free: false }).eq('id', secondaryTableId);
             await supabase.from('tables').update({ is_free: false }).eq('id', primaryTableId);
 
             setTables(prev =>
                 prev.map(t =>
-                    t.id === secondaryTableId
-                        ? { ...t, is_free: true }
-                        : t.id === primaryTableId
+                    (t.id === secondaryTableId || t.id === primaryTableId)
                         ? { ...t, is_free: false }
                         : t
                 )
             );
 
-            setOrders(prev =>
-                prev
-                    .filter(o => o.id !== mergeOrder.id)
-                    .map(o => (o.id === keepOrder.id ? updatedKeep : o))
-            );
+            fetchOrders(); // Refresh to get the LINK order
 
             if (selectedTableOrder && selectedTableOrder.table_id === primaryTableId) {
                 setSelectedTableOrder(updatedKeep);
@@ -1265,20 +1260,29 @@ const AdminPage = () => {
                                 o => o.table_id === table.id && o.status !== 'paid' && o.status !== 'rejected'
                             );
                             const hasNewOrder = tableOrder?.status === 'new';
+                            const isLinked = tableOrder?.items?.length === 1 && tableOrder.items[0].type === 'LINK';
                             const isOccupied = (!hasNewOrder && tableOrder) || (!table.is_free && !hasNewOrder);
 
                             return (
                                 <div
                                     key={table.id}
-                                    onClick={() => handleTableClick(table)}
+                                    onClick={() => {
+                                        if (isLinked) {
+                                            const targetId = tableOrder.items[0].targetTable;
+                                            const targetOrder = orders.find(o => o.table_id === targetId && o.status !== 'paid' && o.status !== 'rejected');
+                                            if (targetOrder) setSelectedTableOrder(targetOrder);
+                                        } else {
+                                            handleTableClick(table);
+                                        }
+                                    }}
                                     className="glass"
                                     style={{
                                         padding: '32px 24px',
                                         borderRadius: '24px',
-                                        border: isOccupied ? '1px solid var(--text-main)' : (hasNewOrder ? '1px solid var(--text-muted)' : '1px solid var(--border-subtle)'),
-                                        backgroundColor: isOccupied ? 'var(--accent-white)' : (hasNewOrder ? 'var(--glass-hover)' : 'var(--glass)'),
-                                        color: isOccupied ? 'var(--bg-dark)' : 'var(--text-main)',
-                                        cursor: (isOccupied || hasNewOrder) ? 'pointer' : 'default',
+                                        border: isLinked ? '1px dashed var(--text-muted)' : isOccupied ? '1px solid var(--text-main)' : (hasNewOrder ? '1px solid var(--text-muted)' : '1px solid var(--border-subtle)'),
+                                        backgroundColor: isLinked ? 'var(--glass-hover)' : isOccupied ? 'var(--accent-white)' : (hasNewOrder ? 'var(--glass-hover)' : 'var(--glass)'),
+                                        color: isOccupied && !isLinked ? 'var(--bg-dark)' : 'var(--text-main)',
+                                        cursor: (isOccupied || hasNewOrder || isLinked) ? 'pointer' : 'default',
                                         position: 'relative',
                                         textAlign: 'center',
                                         transition: 'all 0.3s cubic-bezier(0.25, 1, 0.5, 1)'
@@ -1293,10 +1297,10 @@ const AdminPage = () => {
                                         fontSize: '0.7rem',
                                         fontWeight: '700',
                                         letterSpacing: '0.05em',
-                                        backgroundColor: isOccupied ? 'var(--bg-dark)' : (hasNewOrder ? 'var(--text-main)' : 'var(--glass)'),
-                                        color: isOccupied ? 'var(--accent-white)' : (hasNewOrder ? 'var(--bg-dark)' : 'var(--text-muted)')
+                                        backgroundColor: isLinked ? 'rgba(255,255,255,0.1)' : isOccupied ? 'var(--bg-dark)' : (hasNewOrder ? 'var(--text-main)' : 'var(--glass)'),
+                                        color: isLinked ? 'var(--text-muted)' : isOccupied ? 'var(--accent-white)' : (hasNewOrder ? 'var(--bg-dark)' : 'var(--text-muted)')
                                     }}>
-                                        {isOccupied ? 'OCCUPIED' : (hasNewOrder ? 'NEW ⚡' : 'FREE')}
+                                        {isLinked ? 'LINKED 🔗' : isOccupied ? 'OCCUPIED' : (hasNewOrder ? 'NEW ⚡' : 'FREE')}
                                     </div>
 
                                     <h3 style={{ fontSize: '1.6rem', marginBottom: '8px', fontWeight: '700', letterSpacing: '-0.02em', color: isOccupied ? 'var(--bg-dark)' : 'var(--text-main)' }}>Table {table.id}</h3>
@@ -1341,7 +1345,7 @@ const AdminPage = () => {
                         >
                             📦 + Place Manual Parcel Order
                         </button>
-                        {orders.filter(o => o.table_id === 0).map(order => {
+                        {orders.filter(o => o.table_id === 0 && o.status !== 'paid' && o.status !== 'rejected').map(order => {
                             const meta = order.items.find(i => i.type === 'METADATA');
                             const parcelNo = meta ? `P-${meta.takeaway_no}` : order.id;
                             const displayItems = order.items.filter(i => i.type !== 'METADATA');
@@ -1382,12 +1386,35 @@ const AdminPage = () => {
                                                     Ready
                                                 </button>
                                             ) : (
-                                                <button
-                                                    onClick={() => completeTakeaway(order.id)}
-                                                    style={{ padding: '8px 20px', fontSize: '0.9rem', backgroundColor: '#4ade80', color: '#000', borderRadius: '16px', fontWeight: '700' }}
-                                                >
-                                                    Handover
-                                                </button>
+                                                handoverOrderId === order.id ? (
+                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                        <button
+                                                            onClick={() => { setHandoverOrderId(null); completeTakeaway(order.id, 'Cash'); }}
+                                                            style={{ padding: '8px 16px', fontSize: '0.85rem', backgroundColor: '#fbbf24', color: '#000', borderRadius: '16px', fontWeight: '700' }}
+                                                        >
+                                                            Cash
+                                                        </button>
+                                                        <button
+                                                            onClick={() => { setHandoverOrderId(null); completeTakeaway(order.id, 'Online'); }}
+                                                            style={{ padding: '8px 16px', fontSize: '0.85rem', backgroundColor: '#60a5fa', color: '#000', borderRadius: '16px', fontWeight: '700' }}
+                                                        >
+                                                            Online
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setHandoverOrderId(null)}
+                                                            style={{ padding: '8px 12px', fontSize: '0.85rem', backgroundColor: 'var(--glass)', color: 'var(--text-main)', border: '1px solid var(--border-subtle)', borderRadius: '16px', fontWeight: '700' }}
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => setHandoverOrderId(order.id)}
+                                                        style={{ padding: '8px 20px', fontSize: '0.9rem', backgroundColor: '#4ade80', color: '#000', borderRadius: '16px', fontWeight: '700' }}
+                                                    >
+                                                        Handover
+                                                    </button>
+                                                )
                                             )}
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); setInvoiceOrder(order); }}
@@ -1400,7 +1427,7 @@ const AdminPage = () => {
                                 </div>
                             );
                         })}
-                        {orders.filter(o => o.table_id === 0).length === 0 && (
+                        {orders.filter(o => o.table_id === 0 && o.status !== 'paid' && o.status !== 'rejected').length === 0 && (
                             <div style={{ textAlign: 'center', padding: '120px 0', color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', letterSpacing: '-0.01em' }}>
                                 No active parcel orders
                             </div>
@@ -1408,7 +1435,7 @@ const AdminPage = () => {
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {orders.filter(o => o.table_id !== 0).map(order => (
+                        {orders.filter(o => o.table_id !== 0 && o.status !== 'paid' && o.status !== 'rejected' && !(o.items?.length === 1 && o.items[0].type === 'LINK')).map(order => (
                             <div key={order.id} className="glass" style={{ padding: '24px', borderRadius: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
@@ -1444,7 +1471,7 @@ const AdminPage = () => {
                                 </div>
                             </div>
                         ))}
-                        {orders.filter(o => o.table_id !== 0).length === 0 && (
+                        {orders.filter(o => o.table_id !== 0 && o.status !== 'paid' && o.status !== 'rejected' && !(o.items?.length === 1 && o.items[0].type === 'LINK')).length === 0 && (
                             <div style={{ textAlign: 'center', padding: '120px 0', color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', letterSpacing: '-0.01em' }}>
                                 No active orders in queue
                             </div>
@@ -1471,7 +1498,7 @@ const AdminPage = () => {
                     }}>
                         <div className="glass animate-fade" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center' }}>
-                                <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
+                                <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     {(() => {
                                         if (selectedTableOrder.table_id === 0) {
                                             const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
@@ -1479,6 +1506,18 @@ const AdminPage = () => {
                                         }
                                         return `Table ${selectedTableOrder.table_id} Order`;
                                     })()}
+                                    {selectedTableOrder.table_id !== 0 && (
+                                        <>
+                                            <button 
+                                                onClick={() => setShowTransferModal(selectedTableOrder)}
+                                                style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '12px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                                            >Transfer ➡️</button>
+                                            <button 
+                                                onClick={() => setShowCombineModal(selectedTableOrder)}
+                                                style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '12px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                                            >Combine 🔗</button>
+                                        </>
+                                    )}
                                 </h2>
                                 <button onClick={() => setSelectedTableOrder(null)} style={{ backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', fontSize: '1.2rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>✕</button>
                             </div>
@@ -2136,6 +2175,66 @@ const AdminPage = () => {
                                 {isUploading ? 'Uploading...' : 'Save Category Changes'}
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Transfer Table Modal */}
+            {showTransferModal && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
+                    <div className="glass" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '32px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800' }}>Transfer Table {showTransferModal.table_id}</h2>
+                            <button onClick={() => setShowTransferModal(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white' }}>✕</button>
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Select an available table to transfer to:</p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                            {tables.filter(t => t.is_free && t.id !== showTransferModal.table_id).map(t => (
+                                <button
+                                    key={t.id}
+                                    onClick={() => {
+                                        transferOrderToTable(showTransferModal.id, showTransferModal.table_id, t.id);
+                                        setShowTransferModal(null);
+                                    }}
+                                    style={{ flex: '1 1 calc(33.333% - 12px)', padding: '16px', borderRadius: '16px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', fontWeight: '700', fontSize: '1.2rem', cursor: 'pointer' }}
+                                >
+                                    T-{t.id}
+                                </button>
+                            ))}
+                            {tables.filter(t => t.is_free && t.id !== showTransferModal.table_id).length === 0 && (
+                                <div style={{ width: '100%', textAlign: 'center', color: 'var(--text-muted)', padding: '24px 0' }}>No free tables available</div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Combine Table Modal */}
+            {showCombineModal && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
+                    <div className="glass" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '32px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800' }}>Combine to Table {showCombineModal.table_id}</h2>
+                            <button onClick={() => setShowCombineModal(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white' }}>✕</button>
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Select another table to combine onto Table {showCombineModal.table_id}:</p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', maxHeight: '300px', overflowY: 'auto', paddingBottom: '12px' }}>
+                            {tables.filter(t => t.id !== showCombineModal.table_id).map(t => {
+                                const isOccupied = !t.is_free;
+                                return (
+                                <button
+                                    key={t.id}
+                                    onClick={() => {
+                                        combineTableWith(showCombineModal.table_id, t.id);
+                                        setShowCombineModal(null);
+                                    }}
+                                    style={{ flex: '1 1 calc(33.333% - 12px)', padding: '16px', borderRadius: '16px', backgroundColor: isOccupied ? 'var(--accent-white)' : 'var(--glass)', border: '1px solid var(--border-subtle)', color: isOccupied ? 'var(--bg-dark)' : 'var(--text-main)', fontWeight: '700', fontSize: '1.2rem', cursor: 'pointer' }}
+                                >
+                                    T-{t.id}
+                                </button>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
             )}

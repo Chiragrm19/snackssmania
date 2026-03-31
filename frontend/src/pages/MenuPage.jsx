@@ -164,19 +164,33 @@ const MenuPage = () => {
             const cartItems = Object.values(cart);
             const cartTotal = cartItems.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
-            // Check for existing active order for this table
             // Only pure parcel QR scans have tableId === '0'. 
-            const effectiveTableId = parseInt(tableId); // Strict adherence to scanned table
+            const scannedTableId = parseInt(tableId);
 
-            const { data: existingOrder, error: fetchError } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('table_id', effectiveTableId)
-                .neq('status', 'paid')
-                .neq('status', 'rejected')
-                .maybeSingle();
+            // Loop to traverse linked tables (max depth 5 to prevent infinite loops)
+            let effectiveTableId = scannedTableId;
+            let existingOrder = null;
+            let traverseDepth = 0;
 
-            if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+            while (traverseDepth < 5) {
+                const { data: orderData, error: fetchError } = await supabase
+                    .from('orders')
+                    .select('*')
+                    .eq('table_id', effectiveTableId)
+                    .neq('status', 'paid')
+                    .neq('status', 'rejected')
+                    .maybeSingle();
+
+                if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+
+                if (orderData && orderData.items?.length === 1 && orderData.items[0].type === 'LINK') {
+                    effectiveTableId = orderData.items[0].targetTable;
+                    traverseDepth++;
+                } else {
+                    existingOrder = orderData;
+                    break;
+                }
+            }
 
             if (existingOrder) {
                 // Clear any previous isNew flags from the existing items list first
