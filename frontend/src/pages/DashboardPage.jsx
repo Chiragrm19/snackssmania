@@ -349,9 +349,32 @@ function isThisMonth(dateStr) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 }
 
-function computeStats(orders, period) {
-  const filterFn = period === 'daily' ? (o) => isToday(o.created_at) : (o) => isThisMonth(o.created_at);
-  const filtered = orders.filter(o => (o.status === 'paid' || o.status === 'preparing' || o.status === 'ready') && filterFn(o));
+function computeStats(orders, period, selectedDate = null, selectedMonth = null, lastResetTime = null) {
+  let filtered = orders.filter(o => (o.status === 'paid' || o.status === 'preparing' || o.status === 'ready'));
+  
+  if (period === 'daily') {
+    filtered = filtered.filter(o => {
+      const isTodayDate = isToday(o.created_at);
+      if (lastResetTime) {
+        return isTodayDate && new Date(o.created_at) > new Date(lastResetTime);
+      }
+      return isTodayDate;
+    });
+  } else if (period === 'monthly') {
+    filtered = filtered.filter(o => isThisMonth(o.created_at));
+  } else if (period === 'custom_date' && selectedDate) {
+    filtered = filtered.filter(o => {
+      const d = new Date(o.created_at);
+      const s = new Date(selectedDate);
+      return d.getFullYear() === s.getFullYear() && d.getMonth() === s.getMonth() && d.getDate() === s.getDate();
+    });
+  } else if (period === 'custom_month' && selectedMonth) {
+    filtered = filtered.filter(o => {
+      const d = new Date(o.created_at);
+      const [year, month] = selectedMonth.split('-').map(Number);
+      return d.getFullYear() === year && (d.getMonth() + 1) === month;
+    });
+  }
   const revenue = filtered.reduce((s, o) => s + (o.total || 0), 0);
   let cash = 0, online = 0;
   filtered.forEach(o => {
@@ -596,7 +619,10 @@ export default function DashboardPage() {
   const [allOrders, setAllOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('daily'); // 'daily' | 'monthly'
+  const [period, setPeriod] = useState('daily'); // 'daily' | 'monthly' | 'custom_date' | 'custom_month'
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [lastResetTime, setLastResetTime] = useState(() => localStorage.getItem('dash_last_reset') || null);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -616,7 +642,7 @@ export default function DashboardPage() {
     return () => supabase.removeChannel(ch);
   }, []);
 
-  const stats = computeStats(allOrders, period);
+  const stats = computeStats(allOrders, period, selectedDate, selectedMonth, lastResetTime);
   const leaderboard = computeLeaderboard(stats.filteredOrders, menuItems);
   const hourly = computeHourly(stats.filteredOrders);
 
@@ -652,6 +678,15 @@ export default function DashboardPage() {
     }
   };
 
+  const startNewDay = () => {
+    if (confirm("Are you sure you want to start a new day? This will reset the current dashboard stats but keep all history.")) {
+      const now = new Date().toISOString();
+      localStorage.setItem('dash_last_reset', now);
+      setLastResetTime(now);
+      setPeriod('daily');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#080b14', color: '#fff', fontFamily: 'Outfit, sans-serif', fontSize: '1.2rem' }}>
@@ -683,12 +718,37 @@ export default function DashboardPage() {
           {/* Filter bar + download */}
           <div className="ldb-filter-bar">
             <button className={`ldb-filter-btn${period === 'daily' ? ' active' : ''}`} onClick={() => setPeriod('daily')}>
-              ☀️ Daily
+              ☀️ Today
             </button>
             <button className={`ldb-filter-btn${period === 'monthly' ? ' active' : ''}`} onClick={() => setPeriod('monthly')}>
               📅 Monthly
             </button>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '50px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>Pick Date:</span>
+              <input 
+                type="date" 
+                value={selectedDate} 
+                onChange={(e) => { setSelectedDate(e.target.value); setPeriod('custom_date'); }}
+                style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.88rem', outline: 'none', cursor: 'pointer' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: '50px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>Pick Month:</span>
+              <input 
+                type="month" 
+                value={selectedMonth} 
+                onChange={(e) => { setSelectedMonth(e.target.value); setPeriod('custom_month'); }}
+                style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.88rem', outline: 'none', cursor: 'pointer' }}
+              />
+            </div>
+
             <div style={{ flex: 1 }} />
+            
+            <button className="ldb-filter-btn" onClick={startNewDay} style={{ borderColor: 'rgba(0, 201, 167, 0.4)', color: 'var(--teal)' }}>
+              ✨ New Day
+            </button>
             <button className="ldb-dl-btn" onClick={handleDownload} disabled={exporting}>
               {exporting ? '⏳ Generating…' : '⬇️ Download PDF'}
             </button>

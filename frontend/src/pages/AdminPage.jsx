@@ -388,34 +388,22 @@ const AdminPage = () => {
         }
     };
 
-    const clearAllData = async () => {
-        const confirmClear = confirm("Are you sure you want to CLEAR ALL ORDERS and RESET TABLES for a new day?");
+    const startNewDay = () => {
+        const confirmClear = confirm("Are you sure you want to START A NEW DAY? This will reset the dashboard stats but KEEP all revenue data in history.");
         if (!confirmClear) return;
 
-        const saveBackup = confirm("Would you like to SAVE A BACKUP of today's orders to your computer first?");
-        if (saveBackup) {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(orders, null, 2));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", `cafe_backup_${new Date().toISOString().split('T')[0]}.json`);
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-        }
-
         try {
-            // Clear orders - use .gt('id', 0) for numeric IDs
-            const { error: orderError } = await supabase.from('orders').delete().gt('id', 0);
-            if (orderError) throw orderError;
+            // Soft reset: Update the reset timestamp used by the dashboard
+            const now = new Date().toISOString();
+            localStorage.setItem('dash_last_reset', now);
 
-            // Reset Tables - use .gt('id', -1) for numeric IDs
-            const { error: tableError } = await supabase.from('tables').update({ is_free: true }).gt('id', -1);
-            if (tableError) throw tableError;
-
-            alert("Data cleared successfully! Ready for a new day.");
-            fetchInitialData();
+            // We still want to free tables for a fresh start
+            supabase.from('tables').update({ is_free: true }).gt('id', -1).then(() => {
+                alert("New day started! Tables have been reset and dashboard stats will show fresh data.");
+                fetchInitialData();
+            });
         } catch (err) {
-            alert("Error clearing data: " + err.message);
+            alert("Error starting new day: " + err.message);
         }
     };
 
@@ -927,19 +915,19 @@ const AdminPage = () => {
                                 ⚙️ Customize
                             </button>
                             <button
-                                onClick={clearAllData}
+                                onClick={startNewDay}
                                 style={{
                                     padding: '10px 16px',
                                     borderRadius: '14px',
-                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                    color: '#f87171',
-                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                    backgroundColor: 'rgba(0, 201, 167, 0.15)',
+                                    color: '#00C9A7',
+                                    border: '1px solid rgba(0, 201, 167, 0.3)',
                                     fontSize: '0.85rem',
                                     fontWeight: '700',
                                     transition: 'all 0.3s'
                                 }}
                             >
-                                🧹 Clear Data
+                                ✨ New Day
                             </button>
                         </div>
 
@@ -977,7 +965,7 @@ const AdminPage = () => {
                                     {[
                                         { label: '📊 Dashboard', onClick: () => window.location.href = '/dashboard' },
                                         { label: '⚙️ Customize', onClick: () => setActiveTab('customize') },
-                                        { label: '🧹 Clear Data', onClick: clearAllData, color: '#f87171' },
+                                        { label: '✨ Start New Day', onClick: startNewDay, color: '#00C9A7' },
                                         { label: '🚪 Sign Out', onClick: () => supabase.auth.signOut() }
                                     ].map((item, idx) => (
                                         <button
