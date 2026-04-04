@@ -175,27 +175,49 @@ const AdminPage = () => {
         };
     }, []);
 
+    // Audio Context Ref to persist across renders
+    const audioContextRef = useRef(null);
+
+    // Initialize/Resume AudioContext on first user gesture
+    useEffect(() => {
+        const initAudio = () => {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContextRef.current.state === 'suspended') {
+                audioContextRef.current.resume();
+            }
+            // We don't remove listener yet, as we might need to resume again 
+            // if it suspends (though usually once is enough)
+        };
+        document.addEventListener('click', initAudio);
+        return () => document.removeEventListener('click', initAudio);
+    }, []);
+
     // Function to play high-frequency chime via Web Audio API (Reliable)
     const playOrderBeep = () => {
         try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const ctx = new AudioContext();
+            if (!audioContextRef.current) return;
+            
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             
             osc.type = 'sine';
-            osc.frequency.setValueAtTime(1200, ctx.currentTime); // High pitch frequency
+            osc.frequency.setValueAtTime(1400, ctx.currentTime); // High pitch frequency
             
-            gain.gain.setValueAtTime(0.5, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
             
             osc.connect(gain);
             gain.connect(ctx.destination);
             
             osc.start();
-            osc.stop(ctx.currentTime + 0.4);
+            osc.stop(ctx.currentTime + 0.3);
         } catch (err) {
-            console.log('Audio blocked or failed');
+            console.log('Audio failed:', err);
         }
     };
 
@@ -544,48 +566,17 @@ const AdminPage = () => {
     };
 
     const markTableFree = async (tableId, paymentMethod = null, splitInfo = null) => {
+        if (!tableId) return;
         try {
-            // Free any linked tables
-            const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && o.items[0].targetTable === tableId);
-            for (const linked of linkedOrders) {
-                await supabase.from('tables').update({ is_free: true }).eq('id', linked.table_id);
-                await supabase.from('orders').update({ status: 'paid' }).eq('id', linked.id);
-            }
-
-            // Save/Update Customer Info if provided
-            if (payPhone && payName) {
-                const { error: custError } = await supabase
-                    .from('customers')
-                    .upsert({ 
-                        name: payName, 
-                        phone_number: payPhone 
-                    }, { onConflict: 'phone_number' });
-                
-                if (custError) console.error('Error saving customer during payment:', custError);
-                
-                // Clear state
-                setPayPhone('');
-                setPayName('');
-                setPayExists(false);
-            }
-
-            const { error: tableError } = await supabase.from('tables').update({ is_free: true }).eq('id', tableId);
-            if (tableError) throw tableError;
-
-            // Fetch the current order to update metadata
-            const { data: orderToUpdate } = await supabase
-                .from('orders')
-                .select('*')
-                .eq('table_id', tableId)
-                .neq('status', 'paid')
-                .maybeSingle();
-
-            if (orderToUpdate) {
+            // Find active order for this table
+            const activeOrder = orders.find(o => o.table_id === tableId && o.status !== 'paid' && o.status !== 'rejected');
+            
+            if (activeOrder) {
                 const updates = { status: 'paid' };
                 if (paymentMethod) updates.payment_method = paymentMethod;
 
                 // Handle PAYMENT_METADATA for breakdown
-                let newItems = [...(orderToUpdate.items || [])];
+                let newItems = [...(activeOrder.items || [])];
                 const metaIdx = newItems.findIndex(i => i.type === 'PAYMENT_METADATA');
                 
                 const metaPayload = { 
@@ -596,25 +587,37 @@ const AdminPage = () => {
 
                 if (metaIdx > -1) newItems[metaIdx] = metaPayload;
                 else newItems.push(metaPayload);
-
                 updates.items = newItems;
 
-                const { error: orderError } = await supabase.from('orders')
-                    .update(updates)
-                    .eq('id', orderToUpdate.id);
-
-                if (orderError) throw orderError;
+                await supabase.from('orders').update(updates).eq('id', activeOrder.id);
             }
 
-            setTables(prev => prev.map(t => t.id === tableId ? { ...t, is_free: true } : t));
-            setOrders(prev => prev.filter(o => o.table_id !== tableId || o.status === 'paid'));
+            // Free the primary table
+            await supabase.from('tables').update({ is_free: true }).eq('id', tableId);
+
+            // Free any linked tables
+            const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && o.items[0].targetTable === tableId);
+            for (const linked of linkedOrders) {
+                await supabase.from('tables').update({ is_free: true }).eq('id', linked.table_id);
+                await supabase.from('orders').update({ status: 'paid' }).eq('id', linked.id);
+            }
+
+            // Save/Update Customer Info if provided
+            if (payPhone && payName) {
+                await supabase.from('customers').upsert({ name: payName, phone_number: payPhone }, { onConflict: 'phone_number' });
+                setPayPhone(''); setPayName(''); setPayExists(false);
+            }
+
+            // Local state updates
+            setTables(prev => prev.map(t => t.id === tableId || linkedOrders.some(lo => lo.table_id === t.id) ? { ...t, is_free: true } : t));
+            setOrders(prev => prev.filter(o => (o.table_id !== tableId && !linkedOrders.some(lo => lo.id === o.id)) || o.status === 'paid'));
 
             setSelectedTableOrder(null);
             setIsSplitPayment(false);
             fetchInitialData();
         } catch (err) {
             console.error('Error clearing table:', err.message);
-            alert('Failed to clear table: ' + err.message);
+            alert('Payment failed: ' + err.message);
         }
     };
 
