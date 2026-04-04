@@ -487,7 +487,13 @@ const MenuPage = () => {
                                 transition: 'all 0.3s'
                             }}>
                                 {cat.image_url ? (
-                                    <img src={cat.image_url} alt={cat.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <img 
+                                        src={cat.image_url} 
+                                        alt={cat.name} 
+                                        loading="lazy"
+                                        onLoad={(e) => e.target.style.opacity = 1}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0, transition: 'opacity 0.3s' }} 
+                                    />
                                 ) : (
                                     <span style={{ fontSize: '1.6rem', filter: isActive ? 'none' : 'grayscale(0.5)' }}>{cat.id === 'all' ? '🏠' : '🍽️'}</span>
                                 )}

@@ -40,6 +40,7 @@ const AdminPage = () => {
     const [handoverOrderId, setHandoverOrderId] = useState(null);
     const [showTransferModal, setShowTransferModal] = useState(null);
     const [showCombineModal, setShowCombineModal] = useState(null);
+    const [showSettingsMenu, setShowSettingsMenu] = useState(false);
     
     // Split Payment & Manual Edit States
     const [editTotal, setEditTotal] = useState(0);
@@ -891,80 +892,167 @@ const AdminPage = () => {
                         <h1 style={{ fontSize: 'clamp(1.4rem, 5vw, 2.2rem)', color: 'var(--text-main)', fontWeight: '800', letterSpacing: '-0.04em', lineHeight: 1.1 }}>snackssmania ADMIN</h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: '500', marginTop: '4px' }}>Dashboard & Operations</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button
-                            onClick={() => window.location.href = '/dashboard'}
-                            style={{
-                                padding: '10px 16px',
-                                borderRadius: '14px',
-                                background: 'linear-gradient(135deg, rgba(245,166,35,0.2), rgba(0,201,167,0.2))',
-                                color: '#F5A623',
-                                border: '1px solid rgba(245,166,35,0.4)',
-                                fontSize: '0.85rem',
-                                fontWeight: '700',
-                                transition: 'all 0.3s',
-                                cursor: 'pointer',
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }} className="header-actions">
+                        {/* Desktop View Buttons */}
+                        <div className="desktop-only" style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                onClick={() => window.location.href = '/dashboard'}
+                                style={{
+                                    padding: '10px 16px',
+                                    borderRadius: '14px',
+                                    background: 'linear-gradient(135deg, rgba(245,166,35,0.2), rgba(0,201,167,0.2))',
+                                    color: '#F5A623',
+                                    border: '1px solid rgba(245,166,35,0.4)',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '700',
+                                    transition: 'all 0.3s',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                📊 Dashboard
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('customize')}
+                                style={{
+                                    padding: '10px 16px',
+                                    borderRadius: '14px',
+                                    backgroundColor: activeTab === 'customize' ? 'var(--accent-white)' : 'var(--glass)',
+                                    color: activeTab === 'customize' ? 'var(--bg-dark)' : 'var(--text-main)',
+                                    border: '1px solid var(--border-subtle)',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '700',
+                                    transition: 'all 0.3s'
+                                }}
+                            >
+                                ⚙️ Customize
+                            </button>
+                            <button
+                                onClick={clearAllData}
+                                style={{
+                                    padding: '10px 16px',
+                                    borderRadius: '14px',
+                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                    color: '#f87171',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '700',
+                                    transition: 'all 0.3s'
+                                }}
+                            >
+                                🧹 Clear Data
+                            </button>
+                        </div>
+
+                        {/* Mobile View Settings Button */}
+                        <div className="mobile-only" style={{ position: 'relative' }}>
+                            <button
+                                onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                                style={{
+                                    padding: '10px 16px',
+                                    borderRadius: '14px',
+                                    backgroundColor: 'var(--glass)',
+                                    color: 'var(--text-main)',
+                                    border: '1px solid var(--border-subtle)',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '700',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}
+                            >
+                                ⚙️ Settings
+                            </button>
+                            {showSettingsMenu && (
+                                <div className="glass animate-fade" style={{
+                                    position: 'absolute',
+                                    top: 'calc(100% + 8px)',
+                                    right: 0,
+                                    width: '200px',
+                                    borderRadius: '16px',
+                                    padding: '8px',
+                                    zIndex: 100,
+                                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                                    border: '1px solid var(--border-subtle)'
+                                }}>
+                                    {[
+                                        { label: '📊 Dashboard', onClick: () => window.location.href = '/dashboard' },
+                                        { label: '⚙️ Customize', onClick: () => setActiveTab('customize') },
+                                        { label: '🧹 Clear Data', onClick: clearAllData, color: '#f87171' },
+                                        { label: '🚪 Sign Out', onClick: () => supabase.auth.signOut() }
+                                    ].map((item, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => { item.onClick(); setShowSettingsMenu(false); }}
+                                            style={{
+                                                width: '100%',
+                                                textAlign: 'left',
+                                                padding: '12px 16px',
+                                                borderRadius: '10px',
+                                                backgroundColor: 'transparent',
+                                                color: item.color || 'var(--text-main)',
+                                                border: 'none',
+                                                fontSize: '0.9rem',
+                                                fontWeight: '600',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            {item.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div 
+                            onClick={() => {
+                                playOrderBeep();
                             }}
+                            className="glass" 
+                            style={{ padding: '10px 16px', borderRadius: '14px', fontWeight: '600', color: 'var(--text-main)', fontSize: '0.85rem', cursor: 'pointer' }}
                         >
-                            📊 Dashboard
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('customize')}
-                            style={{
-                                padding: '10px 16px',
-                                borderRadius: '14px',
-                                backgroundColor: activeTab === 'customize' ? 'var(--accent-white)' : 'var(--glass)',
-                                color: activeTab === 'customize' ? 'var(--bg-dark)' : 'var(--text-main)',
-                                border: '1px solid var(--border-subtle)',
-                                fontSize: '0.85rem',
-                                fontWeight: '700',
-                                transition: 'all 0.3s'
-                            }}
-                        >
-                            ⚙️ Customize
-                        </button>
-                        <button
-                            onClick={clearAllData}
-                            style={{
-                                padding: '10px 16px',
-                                borderRadius: '14px',
-                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                color: '#f87171',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                                fontSize: '0.85rem',
-                                fontWeight: '700',
-                                transition: 'all 0.3s'
-                            }}
-                        >
-                            🧹 Clear Data
-                        </button>
-                        <div className="glass" style={{ padding: '10px 16px', borderRadius: '14px', fontWeight: '600', color: 'var(--text-main)', fontSize: '0.85rem' }}>
                             🔔 <span style={{ marginLeft: '6px' }}>{newOrder ? '1 New' : orders.filter(o => o.status === 'new').length}</span>
                         </div>
-                        <button
-                            onClick={() => supabase.auth.signOut()}
-                            style={{
-                                padding: '10px 16px',
-                                borderRadius: '14px',
-                                backgroundColor: 'var(--glass)',
-                                color: 'var(--text-main)',
-                                border: '1px solid var(--border-subtle)',
-                                fontSize: '0.85rem',
-                                fontWeight: '700',
-                            }}
-                        >
-                            Sign Out
-                        </button>
+                        
+                        <div className="desktop-only">
+                            <button
+                                onClick={() => supabase.auth.signOut()}
+                                style={{
+                                    padding: '10px 16px',
+                                    borderRadius: '14px',
+                                    backgroundColor: 'var(--glass)',
+                                    color: 'var(--text-main)',
+                                    border: '1px solid var(--border-subtle)',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '700',
+                                }}
+                            >
+                                Sign Out
+                            </button>
+                        </div>
                     </div>
                 </header>
 
                 {/* Stats Bar */}
+                <style>
+                    {`
+                        @media (max-width: 768px) {
+                            .desktop-only { display: none !important; }
+                            .mobile-only { display: block !important; }
+                            .header-actions { width: auto; }
+                            .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+                            .admin-container { padding: 16px !important; }
+                        }
+                        @media (min-width: 769px) {
+                            .mobile-only { display: none !important; }
+                        }
+                    `}
+                </style>
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
                     gap: '12px',
                     marginBottom: '28px'
-                }}>
+                }} className="stats-grid">
                     {[
                         { label: 'Occupied',  val: stats.occupied,      icon: '🪑', c: 'var(--text-main)' },
                         { label: 'Free',       val: stats.free,          icon: '✅', c: 'var(--accent-green)' },

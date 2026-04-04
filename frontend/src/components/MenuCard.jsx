@@ -61,10 +61,13 @@ const MenuCard = ({ item, cartQuantity, onAdd, onRemove }) => {
                     <img 
                         src={item.image_url} 
                         alt={item.name} 
+                        loading="lazy"
+                        onLoad={(e) => e.target.style.opacity = 1}
                         style={{ 
                             width: '100%', 
                             height: '100%', 
                             objectFit: 'cover',
+                            opacity: 0,
                             filter: isSelected ? 'brightness(1.1) contrast(1.1)' : 'none',
                             transition: 'all 0.5s ease',
                             transform: isSelected ? 'scale(1.1)' : 'scale(1)'
