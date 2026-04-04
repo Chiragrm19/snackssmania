@@ -47,9 +47,6 @@ const AdminPage = () => {
     const [splitCashAmount, setSplitCashAmount] = useState(0);
     const [splitOnlineAmount, setSplitOnlineAmount] = useState(0);
     
-    // Audio Ref for notification (Silent Unlock on first click)
-    const notificationAudio = useRef(new Audio('https://www.soundjay.com/buttons/beep-07.mp3'));
-    
     // Security Utility: Sanitize inputs to prevent XSS
     const sanitize = (str) => {
         if (typeof str !== 'string') return str;
@@ -178,25 +175,36 @@ const AdminPage = () => {
         };
     }, []);
 
-    useEffect(() => {
-        const unlock = () => {
-            notificationAudio.current.play().then(() => {
-                notificationAudio.current.pause();
-                notificationAudio.current.currentTime = 0;
-            }).catch(() => {});
-            document.removeEventListener('click', unlock);
-        };
-        document.addEventListener('click', unlock);
-        return () => document.removeEventListener('click', unlock);
-    }, []);
-    
+    // Function to play high-frequency chime via Web Audio API (Reliable)
+    const playOrderBeep = () => {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1200, ctx.currentTime); // High pitch frequency
+            
+            gain.gain.setValueAtTime(0.5, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            osc.start();
+            osc.stop(ctx.currentTime + 0.4);
+        } catch (err) {
+            console.log('Audio blocked or failed');
+        }
+    };
+
     useEffect(() => {
         if (!newOrder && orders.length > 0) {
             const unseen = orders.find(o => o.status === 'new' && notifiedOrderTotals[o.id] !== o.total);
             if (unseen) {
-                // Play notification sound
-                notificationAudio.current.currentTime = 0;
-                notificationAudio.current.play().catch(e => console.log('Audio autoplay blocked or failed:', e));
+                // Play procedural chime
+                playOrderBeep();
                 
                 setNewOrder(unseen);
                 setNotifiedOrderTotals(prev => ({ ...prev, [unseen.id]: unseen.total }));
