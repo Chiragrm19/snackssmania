@@ -966,7 +966,7 @@ const AdminPage = () => {
                                 <div className="glass animate-fade" style={{
                                     position: 'absolute',
                                     top: 'calc(100% + 8px)',
-                                    right: 0,
+                                    left: 0,
                                     width: '200px',
                                     borderRadius: '16px',
                                     padding: '8px',
@@ -1150,8 +1150,8 @@ const AdminPage = () => {
                                 <div style={{ display: 'flex', gap: '12px' }}>
                                     <input name="price" type="number" placeholder="Price (₹)" required className="glass" style={{ flex: 1, padding: '16px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
                                     <select name="category" required className="glass" style={{ flex: 1, padding: '16px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none', appearance: 'none' }}>
-                                        <option value="">Select Category</option>
-                                        {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
+                                        <option value="" style={{ color: '#000' }}>Select Category</option>
+                                        {categories.map(cat => <option key={cat.id} value={cat.name} style={{ color: '#000' }}>{cat.name}</option>)}
                                     </select>
                                 </div>
                                 <textarea name="description" placeholder="Description" className="glass" style={{ padding: '16px', borderRadius: '16px', color: 'var(--text-main)', minHeight: '80px', outline: 'none', resize: 'none' }}></textarea>
@@ -1667,7 +1667,7 @@ const AdminPage = () => {
                         justifyContent: 'center',
                         padding: '24px'
                     }}>
-                        <div className="glass modal-content animate-fade" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)', display: 'flex', flexDirection: 'column' }}>
+                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)', display: 'flex', flexDirection: 'column' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                                 <h2 style={{ fontSize: '1.2rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                     {(() => {
@@ -2007,7 +2007,7 @@ const AdminPage = () => {
                     justifyContent: 'center',
                     padding: '24px'
                 }}>
-                    <div className="glass modal-content animate-fade" style={{
+                    <div className="glass modal-content" style={{
                         width: '100%',
                         maxWidth: '430px',
                         borderRadius: '32px',
@@ -2246,15 +2246,16 @@ const AdminPage = () => {
                                                 key={catName} 
                                                 onClick={() => setManualCategory(catName)}
                                                 style={{ 
-                                                    padding: '8px 20px', 
+                                                    padding: '10px 24px', 
                                                     backgroundColor: manualCategory === catName ? 'var(--accent-white)' : 'var(--glass)', 
                                                     color: manualCategory === catName ? 'var(--bg-dark)' : 'white', 
                                                     border: '1px solid var(--border-subtle)', 
-                                                    borderRadius: '20px', 
-                                                    fontSize: '0.8rem', 
+                                                    borderRadius: '24px', 
+                                                    fontSize: '0.85rem', 
                                                     fontWeight: '700',
                                                     whiteSpace: 'nowrap',
-                                                    transition: 'all 0.2s'
+                                                    transition: 'all 0.2s',
+                                                    minWidth: 'fit-content'
                                                 }}
                                             >
                                                 {catName.toUpperCase()}
@@ -2300,20 +2301,21 @@ const AdminPage = () => {
                                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ flex: 1 }}>
                                                 <p style={{ fontSize: '0.9rem', fontWeight: '600' }}>{item.name}</p>
-                                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{item.qty} x ₹{item.price}</p>
+                                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>₹{item.price * item.qty}</p>
                                             </div>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                                 <button 
                                                     onClick={() => {
                                                         setManualCart(prev => prev.map(i => i.id === item.id ? { ...i, qty: Math.max(0, i.qty - 1) } : i).filter(i => i.qty > 0));
                                                     }}
-                                                    style={{ width: '24px', height: '24px', borderRadius: '12px', border: '1px solid var(--border-subtle)', color: 'white' }}
+                                                    style={{ width: '30px', height: '30px', borderRadius: '15px', border: 'none', backgroundColor: '#f87171', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                                 >-</button>
+                                                <span style={{ fontWeight: '700', minWidth: '20px', textAlign: 'center' }}>{item.qty}</span>
                                                 <button 
                                                     onClick={() => {
                                                         setManualCart(prev => prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i));
                                                     }}
-                                                    style={{ width: '24px', height: '24px', borderRadius: '12px', border: '1px solid var(--border-subtle)', color: 'white' }}
+                                                    style={{ width: '30px', height: '30px', borderRadius: '15px', border: 'none', backgroundColor: '#4ade80', color: '#000', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                                 >+</button>
                                             </div>
                                         </div>
@@ -2381,7 +2383,7 @@ const AdminPage = () => {
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <input name="price" type="number" defaultValue={editItem.price} placeholder="Price" required className="glass" style={{ flex: 1, padding: '14px', borderRadius: '14px', color: 'var(--text-main)' }} />
                                 <select name="category" defaultValue={editItem.category} className="glass" style={{ flex: 1, padding: '14px', borderRadius: '14px', color: 'var(--text-main)', appearance: 'none' }}>
-                                    {categories.map(cat => <option key={cat.id} value={cat.name} style={{color:'black'}}>{cat.name}</option>)}
+                                    {categories.map(cat => <option key={cat.id} value={cat.name} style={{ color: '#000' }}>{cat.name}</option>)}
                                 </select>
                             </div>
                             <textarea name="description" defaultValue={editItem.description} placeholder="Description" className="glass" style={{ padding: '14px', borderRadius: '14px', color: 'var(--text-main)', minHeight: '80px' }} />
