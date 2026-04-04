@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import OrderPopup from '../components/OrderPopup';
 import InvoiceModal from '../components/InvoiceModal';
@@ -46,6 +46,9 @@ const AdminPage = () => {
     const [isSplitPayment, setIsSplitPayment] = useState(false);
     const [splitCashAmount, setSplitCashAmount] = useState(0);
     const [splitOnlineAmount, setSplitOnlineAmount] = useState(0);
+    
+    // Audio Ref for notification (Silent Unlock on first click)
+    const notificationAudio = useRef(new Audio('https://www.soundjay.com/buttons/beep-07.mp3'));
     
     // Security Utility: Sanitize inputs to prevent XSS
     const sanitize = (str) => {
@@ -176,16 +179,24 @@ const AdminPage = () => {
     }, []);
 
     useEffect(() => {
+        const unlock = () => {
+            notificationAudio.current.play().then(() => {
+                notificationAudio.current.pause();
+                notificationAudio.current.currentTime = 0;
+            }).catch(() => {});
+            document.removeEventListener('click', unlock);
+        };
+        document.addEventListener('click', unlock);
+        return () => document.removeEventListener('click', unlock);
+    }, []);
+    
+    useEffect(() => {
         if (!newOrder && orders.length > 0) {
             const unseen = orders.find(o => o.status === 'new' && notifiedOrderTotals[o.id] !== o.total);
             if (unseen) {
                 // Play notification sound
-                try {
-                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-                    audio.play().catch(e => console.log('Audio autoplay blocked or failed:', e));
-                } catch (err) {
-                    console.error('Error playing notification sound:', err);
-                }
+                notificationAudio.current.currentTime = 0;
+                notificationAudio.current.play().catch(e => console.log('Audio autoplay blocked or failed:', e));
                 
                 setNewOrder(unseen);
                 setNotifiedOrderTotals(prev => ({ ...prev, [unseen.id]: unseen.total }));
@@ -917,7 +928,7 @@ const AdminPage = () => {
                             🧹 Clear Data
                         </button>
                         <div className="glass" style={{ padding: '10px 16px', borderRadius: '14px', fontWeight: '600', color: 'var(--text-main)', fontSize: '0.85rem' }}>
-                            🔔 <span style={{ marginLeft: '6px' }}>{newOrder ? '1 New' : '0'}</span>
+                            🔔 <span style={{ marginLeft: '6px' }}>{newOrder ? '1 New' : orders.filter(o => o.status === 'new').length}</span>
                         </div>
                         <button
                             onClick={() => supabase.auth.signOut()}
