@@ -24,6 +24,14 @@ const STYLES = `
 .ldb-ring2 { width:680px;height:680px;margin:-340px 0 0 -340px;border:1px dashed rgba(245,166,35,.2);animation-duration:46s;animation-direction:reverse; }
 .ldb-ring3 { width:980px;height:980px;margin:-490px 0 0 -490px;border:1px solid rgba(255,255,255,.04);animation-duration:68s; }
 @keyframes ldb-spin { from{transform:rotateX(75deg) rotateZ(0deg);} to{transform:rotateX(75deg) rotateZ(360deg);} }
+@media(max-width: 800px) {
+  .ldb-orbit { display: none !important; }
+  .ldb-title { font-size: 1.4rem !important; }
+  .ldb-content { padding: 20px 16px 60px !important; }
+  .ldb-ticker { font-size: 0.75rem !important; }
+  .ldb-kpi-grid { gap: 12px !important; }
+  .ldb-val { font-size: 1.8rem !important; }
+}
 
 /* ticker */
 .ldb-ticker { width:100%;background:rgba(0,0,0,.45);border-bottom:1px solid rgba(255,255,255,.08);padding:10px 0;overflow:hidden;white-space:nowrap;position:relative;z-index:20; }

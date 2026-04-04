@@ -1038,9 +1038,20 @@ const AdminPage = () => {
                         @media (max-width: 768px) {
                             .desktop-only { display: none !important; }
                             .mobile-only { display: block !important; }
-                            .header-actions { width: auto; }
-                            .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
-                            .admin-container { padding: 16px !important; }
+                            .header-actions { width: auto; gap: 6px !important; }
+                            .stats-grid { 
+                                grid-template-columns: repeat(2, 1fr) !important; 
+                                gap: 10px !important;
+                                margin-bottom: 20px !important;
+                            }
+                            .admin-container { padding: 16px 12px !important; }
+                            .table-grid { grid-template-columns: 1fr !important; }
+                            .modal-content { 
+                                width: 95% !important; 
+                                padding: 20px !important; 
+                                max-height: 90vh !important;
+                                overflow-y: auto !important;
+                            }
                         }
                         @media (min-width: 769px) {
                             .mobile-only { display: none !important; }
@@ -1049,7 +1060,7 @@ const AdminPage = () => {
                 </style>
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
                     gap: '12px',
                     marginBottom: '28px'
                 }} className="stats-grid">
@@ -1656,9 +1667,9 @@ const AdminPage = () => {
                         justifyContent: 'center',
                         padding: '24px'
                     }}>
-                        <div className="glass animate-fade" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center' }}>
-                                <h2 style={{ fontSize: '1.5rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div className="glass modal-content animate-fade" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                     {(() => {
                                         if (selectedTableOrder.table_id === 0) {
                                             const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
@@ -1727,8 +1738,8 @@ const AdminPage = () => {
                                         </>
                                     );
                                 })()}
-                                <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', marginTop: '20px', display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1.6rem', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', alignSelf: 'center' }}>Total</span>
+                                <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', marginTop: '20px', display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: 'clamp(1.2rem, 4vw, 1.6rem)', letterSpacing: '-0.02em', color: 'var(--text-main)', flexWrap: 'wrap', gap: '8px' }}>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: '500', alignSelf: 'center' }}>Total</span>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>₹</span>
                                         <input 
@@ -1744,20 +1755,18 @@ const AdminPage = () => {
                                             onBlur={async () => {
                                                 if (editTotal !== selectedTableOrder.total) {
                                                     await supabase.from('orders').update({ total: editTotal }).eq('id', selectedTableOrder.id);
-                                                    // Local state update via real-time will handle the rest, 
-                                                    // but we update selectedTableOrder immediately for UX
                                                     setSelectedTableOrder(prev => ({ ...prev, total: editTotal }));
                                                 }
                                             }}
                                             style={{ 
-                                                width: '120px', 
+                                                width: '100px', 
                                                 background: 'var(--glass)', 
                                                 border: '1px solid var(--border-subtle)', 
                                                 borderRadius: '12px', 
                                                 color: 'var(--text-main)', 
-                                                fontSize: '1.6rem', 
+                                                fontSize: '1.4rem', 
                                                 fontWeight: '800',
-                                                padding: '4px 12px',
+                                                padding: '4px 8px',
                                                 textAlign: 'right',
                                                 outline: 'none'
                                             }}
@@ -1998,7 +2007,7 @@ const AdminPage = () => {
                     justifyContent: 'center',
                     padding: '24px'
                 }}>
-                    <div className="glass animate-fade" style={{
+                    <div className="glass modal-content animate-fade" style={{
                         width: '100%',
                         maxWidth: '430px',
                         borderRadius: '32px',
@@ -2146,7 +2155,7 @@ const AdminPage = () => {
             {/* Recipe Mapping Modal */}
             {mappingItem && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)' }}>
-                    <div className="glass" style={{ width: '100%', maxWidth: '480px', borderRadius: '24px', padding: '32px' }}>
+                    <div className="glass modal-content" style={{ width: '100%', maxWidth: '480px', borderRadius: '24px', padding: '32px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h3 style={{ fontSize: '1.2rem', fontWeight: '800' }}>Recipe: {mappingItem.name}</h3>
                             <button onClick={() => { setMappingItem(null); setNewMatId(''); setNewMatQty(''); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem' }}>✕</button>
@@ -2213,7 +2222,7 @@ const AdminPage = () => {
             {/* Manual Order Modal */}
             {showManualOrder !== null && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
-                    <div className="glass" style={{ width: '100%', maxWidth: '900px', height: '90vh', borderRadius: '32px', padding: '32px', display: 'flex', flexDirection: 'column' }}>
+                    <div className="glass modal-content" style={{ width: '100%', maxWidth: '900px', height: '90vh', borderRadius: '32px', padding: '32px', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h2 style={{ fontSize: '1.5rem', fontWeight: '800' }}>Manual Order — {showManualOrder === 0 ? 'Takeaway' : `Table ${showManualOrder}`}</h2>
                             <button onClick={() => { setShowManualOrder(null); setManualCart([]); setManualSearch(''); setManualCategory('all'); }} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '40px', height: '40px', borderRadius: '20px', color: 'white' }}>✕</button>
@@ -2334,9 +2343,9 @@ const AdminPage = () => {
             {/* Edit Menu Item Modal */}
             {editItem && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
-                    <div className="glass" style={{ width: '100%', maxWidth: '500px', borderRadius: '32px', padding: '32px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800' }}>Edit Item: {editItem.name}</h2>
+                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '500px', borderRadius: '32px', padding: '32px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: '800' }}>Edit Item: {editItem.name}</h2>
                             <button onClick={() => setEditItem(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white' }}>✕</button>
                         </div>
 
@@ -2394,9 +2403,9 @@ const AdminPage = () => {
             {/* Edit Category Modal */}
             {editCategory && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
-                    <div className="glass" style={{ width: '100%', maxWidth: '500px', borderRadius: '32px', padding: '32px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800' }}>Edit Category: {editCategory.name}</h2>
+                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '500px', borderRadius: '32px', padding: '32px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: '800' }}>Edit Category: {editCategory.name}</h2>
                             <button onClick={() => setEditCategory(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white' }}>✕</button>
                         </div>
 
@@ -2443,9 +2452,9 @@ const AdminPage = () => {
             {/* Transfer Table Modal */}
             {showTransferModal && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
-                    <div className="glass" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '32px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800' }}>Transfer Table {showTransferModal.table_id}</h2>
+                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '32px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: '800' }}>Transfer Table {showTransferModal.table_id}</h2>
                             <button onClick={() => setShowTransferModal(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white' }}>✕</button>
                         </div>
                         <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Select an available table to transfer to:</p>
@@ -2473,9 +2482,9 @@ const AdminPage = () => {
             {/* Combine Table Modal */}
             {showCombineModal && (
                 <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
-                    <div className="glass" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '32px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800' }}>Combine to Table {showCombineModal.table_id}</h2>
+                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '400px', borderRadius: '32px', padding: '32px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: '800' }}>Combine to Table {showCombineModal.table_id}</h2>
                             <button onClick={() => setShowCombineModal(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white' }}>✕</button>
                         </div>
                         <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Select another table to combine onto Table {showCombineModal.table_id}:</p>

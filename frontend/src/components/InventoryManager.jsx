@@ -181,7 +181,7 @@ const InventoryManager = ({ materials, setMaterials, recipes, setRecipes, consum
             {/* DASHBOARD */}
             {subTab === 'dashboard' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
                         {[
                             { label: 'Total Stocked', val: materials.length, c: 'var(--text-main)' },
                             { label: 'Low Alert',     val: lowCount,         c: '#fbbf24' },
@@ -195,7 +195,7 @@ const InventoryManager = ({ materials, setMaterials, recipes, setRecipes, consum
                         ))}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
                         {/* Alerts Card */}
                         <div className="glass" style={{ padding: '28px', borderRadius: '24px' }}>
                             <h3 style={{ color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.02em' }}>⚠️ Stock Notifications</h3>
@@ -249,7 +249,7 @@ const InventoryManager = ({ materials, setMaterials, recipes, setRecipes, consum
                             <button style={btnPrimary} onClick={() => { setEdit(null); setModal('material'); }}>+ New</button>
                         </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px' }}>
                         {materials.map(m => (
                             <div key={m.id} className="glass" style={{ padding: '20px', borderRadius: '20px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
@@ -395,12 +395,12 @@ function RecipeModal({ initial, materials, menuItems, onSave, onClose }) {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {recipe.map((r, i) => (
-                            <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
+                            <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-subtle)', flexWrap: 'wrap' }}>
                                 <select style={{ ...inputStyle, flex: 1, padding: '8px 12px' }} value={r.materialId} onChange={e => updateIng(i, 'materialId', e.target.value)}>
                                     {materials.map(m => <option key={m.id} value={m.id} style={{color:'black'}}>{m.name}</option>)}
                                 </select>
                                 <input type="number" style={{ ...inputStyle, width: '80px', padding: '8px 12px' }} value={r.qty} onChange={e => updateIng(i, 'qty', e.target.value)} />
-                                <button onClick={() => setRecipe(recipe.filter((_, idx) => idx !== i))} style={btnDanger}>✕</button>
+                                <button onClick={() => setRecipe(recipe.filter((_, idx) => idx !== i))} style={{ ...btnDanger, padding: '8px 12px' }}>✕</button>
                             </div>
                         ))}
                     </div>

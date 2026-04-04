@@ -69,6 +69,8 @@ body {
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
   letter-spacing: -0.018em;
+  width: 100%;
+  overflow-x: hidden;
   /* Radial ambient light from center */
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -10%, rgba(120,100,200,0.12) 0%, transparent 70%),
