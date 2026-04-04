@@ -41,6 +41,12 @@ const AdminPage = () => {
     const [showTransferModal, setShowTransferModal] = useState(null);
     const [showCombineModal, setShowCombineModal] = useState(null);
     
+    // Split Payment & Manual Edit States
+    const [editTotal, setEditTotal] = useState(0);
+    const [isSplitPayment, setIsSplitPayment] = useState(false);
+    const [splitCashAmount, setSplitCashAmount] = useState(0);
+    const [splitOnlineAmount, setSplitOnlineAmount] = useState(0);
+    
     // Security Utility: Sanitize inputs to prevent XSS
     const sanitize = (str) => {
         if (typeof str !== 'string') return str;
@@ -173,6 +179,14 @@ const AdminPage = () => {
         if (!newOrder && orders.length > 0) {
             const unseen = orders.find(o => o.status === 'new' && notifiedOrderTotals[o.id] !== o.total);
             if (unseen) {
+                // Play notification sound
+                try {
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                    audio.play().catch(e => console.log('Audio autoplay blocked or failed:', e));
+                } catch (err) {
+                    console.error('Error playing notification sound:', err);
+                }
+                
                 setNewOrder(unseen);
                 setNotifiedOrderTotals(prev => ({ ...prev, [unseen.id]: unseen.total }));
             }
@@ -510,7 +524,7 @@ const AdminPage = () => {
         }
     };
 
-    const markTableFree = async (tableId, paymentMethod = null) => {
+    const markTableFree = async (tableId, paymentMethod = null, splitInfo = null) => {
         try {
             // Free any linked tables
             const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && o.items[0].targetTable === tableId);
@@ -539,34 +553,45 @@ const AdminPage = () => {
             const { error: tableError } = await supabase.from('tables').update({ is_free: true }).eq('id', tableId);
             if (tableError) throw tableError;
 
-            const updates = { status: 'paid' };
-            if (paymentMethod) updates.payment_method = paymentMethod;
-
-            const { error: orderError } = await supabase.from('orders')
-                .update(updates)
+            // Fetch the current order to update metadata
+            const { data: orderToUpdate } = await supabase
+                .from('orders')
+                .select('*')
                 .eq('table_id', tableId)
-                .neq('status', 'paid');
+                .neq('status', 'paid')
+                .maybeSingle();
 
-            if (orderError) {
-                // If column is missing, use the items array as a fallback
-                if (orderError.message.includes('payment_method')) {
-                    const { data: orderToFix } = await supabase.from('orders').select('items').eq('table_id', tableId).neq('status', 'paid').maybeSingle();
-                    if (orderToFix) {
-                        const fixedItems = [...orderToFix.items, { type: 'PAYMENT_METADATA', method: paymentMethod || 'Cash' }];
-                        await supabase.from('orders').update({ 
-                            status: 'paid', 
-                            items: fixedItems 
-                        }).eq('table_id', tableId).neq('status', 'paid');
-                    }
-                } else {
-                    throw orderError;
-                }
+            if (orderToUpdate) {
+                const updates = { status: 'paid' };
+                if (paymentMethod) updates.payment_method = paymentMethod;
+
+                // Handle PAYMENT_METADATA for breakdown
+                let newItems = [...(orderToUpdate.items || [])];
+                const metaIdx = newItems.findIndex(i => i.type === 'PAYMENT_METADATA');
+                
+                const metaPayload = { 
+                    type: 'PAYMENT_METADATA', 
+                    method: paymentMethod || 'Cash',
+                    split: paymentMethod === 'Split' ? splitInfo : null 
+                };
+
+                if (metaIdx > -1) newItems[metaIdx] = metaPayload;
+                else newItems.push(metaPayload);
+
+                updates.items = newItems;
+
+                const { error: orderError } = await supabase.from('orders')
+                    .update(updates)
+                    .eq('id', orderToUpdate.id);
+
+                if (orderError) throw orderError;
             }
 
             setTables(prev => prev.map(t => t.id === tableId ? { ...t, is_free: true } : t));
             setOrders(prev => prev.filter(o => o.table_id !== tableId || o.status === 'paid'));
 
             setSelectedTableOrder(null);
+            setIsSplitPayment(false);
             fetchInitialData();
         } catch (err) {
             console.error('Error clearing table:', err.message);
@@ -574,29 +599,31 @@ const AdminPage = () => {
         }
     };
 
-    const completeTakeaway = async (orderId, paymentMethod) => {
+    const completeTakeaway = async (orderId, paymentMethod, splitInfo = null) => {
         try {
             const updates = { status: 'paid' };
             if (paymentMethod) updates.payment_method = paymentMethod;
+
+            // Handle metadata for breakdown
+            const { data: orderToFix } = await supabase.from('orders').select('items').eq('id', orderId).maybeSingle();
+            if (orderToFix) {
+                let newItems = [...(orderToFix.items || [])];
+                const metaIdx = newItems.findIndex(i => i.type === 'PAYMENT_METADATA');
+                const metaPayload = { 
+                    type: 'PAYMENT_METADATA', 
+                    method: paymentMethod,
+                    split: paymentMethod === 'Split' ? splitInfo : null
+                };
+                if (metaIdx > -1) newItems[metaIdx] = metaPayload;
+                else newItems.push(metaPayload);
+                updates.items = newItems;
+            }
 
             const { error } = await supabase.from('orders')
                 .update(updates)
                 .eq('id', orderId);
             
-            if (error) {
-                if (error.message.includes('payment_method')) {
-                    const { data: orderToFix } = await supabase.from('orders').select('items').eq('id', orderId).maybeSingle();
-                    if (orderToFix) {
-                        const fixedItems = [...orderToFix.items, { type: 'PAYMENT_METADATA', method: paymentMethod }];
-                        await supabase.from('orders').update({ 
-                            status: 'paid', 
-                            items: fixedItems 
-                        }).eq('id', orderId);
-                    }
-                } else {
-                    throw error;
-                }
-            }
+            if (error) throw error;
 
             setOrders(prev => prev.filter(o => o.id !== orderId));
             alert('Parcel Handed Over Successfully!');
@@ -795,6 +822,13 @@ const AdminPage = () => {
         );
         if (tableOrder) {
             setSelectedTableOrder(tableOrder);
+            setEditTotal(tableOrder.total || 0);
+            setIsSplitPayment(false);
+            setSplitCashAmount(0);
+            setSplitOnlineAmount(0);
+            setPayPhone('');
+            setPayName('');
+            setPayExists(false);
         }
     };
 
@@ -836,6 +870,22 @@ const AdminPage = () => {
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: '500', marginTop: '4px' }}>Dashboard & Operations</p>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={() => window.location.href = '/dashboard'}
+                            style={{
+                                padding: '10px 16px',
+                                borderRadius: '14px',
+                                background: 'linear-gradient(135deg, rgba(245,166,35,0.2), rgba(0,201,167,0.2))',
+                                color: '#F5A623',
+                                border: '1px solid rgba(245,166,35,0.4)',
+                                fontSize: '0.85rem',
+                                fontWeight: '700',
+                                transition: 'all 0.3s',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            📊 Dashboard
+                        </button>
                         <button
                             onClick={() => setActiveTab('customize')}
                             style={{
@@ -1569,7 +1619,40 @@ const AdminPage = () => {
                                 })()}
                                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', marginTop: '20px', display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1.6rem', letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
                                     <span style={{ color: 'var(--text-muted)', fontSize: '1.2rem', fontWeight: '500', alignSelf: 'center' }}>Total</span>
-                                    <span>₹{selectedTableOrder.total}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>₹</span>
+                                        <input 
+                                            type="number"
+                                            value={editTotal}
+                                            onChange={(e) => {
+                                                const newTotal = parseFloat(e.target.value) || 0;
+                                                setEditTotal(newTotal);
+                                                if (isSplitPayment) {
+                                                    setSplitOnlineAmount(Math.max(0, newTotal - splitCashAmount));
+                                                }
+                                            }}
+                                            onBlur={async () => {
+                                                if (editTotal !== selectedTableOrder.total) {
+                                                    await supabase.from('orders').update({ total: editTotal }).eq('id', selectedTableOrder.id);
+                                                    // Local state update via real-time will handle the rest, 
+                                                    // but we update selectedTableOrder immediately for UX
+                                                    setSelectedTableOrder(prev => ({ ...prev, total: editTotal }));
+                                                }
+                                            }}
+                                            style={{ 
+                                                width: '120px', 
+                                                background: 'var(--glass)', 
+                                                border: '1px solid var(--border-subtle)', 
+                                                borderRadius: '12px', 
+                                                color: 'var(--text-main)', 
+                                                fontSize: '1.6rem', 
+                                                fontWeight: '800',
+                                                padding: '4px 12px',
+                                                textAlign: 'right',
+                                                outline: 'none'
+                                            }}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Add Item Section */}
@@ -1685,32 +1768,100 @@ const AdminPage = () => {
                                         <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '4px' }}>* Returning customer detected</p>
                                     )}
                                 </div>
+
+                                {/* Split Payment Controls */}
+                                {isSplitPayment && (
+                                    <div className="glass animate-fade" style={{ padding: '20px', borderRadius: '20px', border: '1px solid var(--border-subtle)', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--amber)' }}>SPLIT PAYMENT</span>
+                                            <button onClick={() => setIsSplitPayment(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>✕ Cancel</button>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>CASH AMOUNT</label>
+                                                <input 
+                                                    type="number"
+                                                    value={splitCashAmount}
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value) || 0;
+                                                        setSplitCashAmount(val);
+                                                        setSplitOnlineAmount(Math.max(0, editTotal - val));
+                                                    }}
+                                                    className="glass"
+                                                    style={{ width: '100%', padding: '12px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', fontSize: '1.1rem', fontWeight: '700' }}
+                                                />
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>ONLINE AMOUNT</label>
+                                                <input 
+                                                    type="number"
+                                                    value={splitOnlineAmount}
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value) || 0;
+                                                        setSplitOnlineAmount(val);
+                                                        setSplitCashAmount(Math.max(0, editTotal - val));
+                                                    }}
+                                                    className="glass"
+                                                    style={{ width: '100%', padding: '12px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', fontSize: '1.1rem', fontWeight: '700' }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: (splitCashAmount + splitOnlineAmount === editTotal) ? 'var(--teal)' : '#f87171', textAlign: 'center', fontWeight: '600' }}>
+                                            {(splitCashAmount + splitOnlineAmount === editTotal) 
+                                                ? '✓ Amounts match total' 
+                                                : `⚠ Total sum must be ₹${editTotal} (Current: ₹${splitCashAmount + splitOnlineAmount})`}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
-                            <div style={{ display: 'flex', gap: '16px' }}>
+                            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                                 {selectedTableOrder.status === 'new' && (
                                     <button
                                         onClick={() => acceptOrder(selectedTableOrder.id, selectedTableOrder.table_id)}
-                                        style={{ flex: 1, padding: '16px', backgroundColor: 'var(--text-main)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                        style={{ height: '56px', flex: 1, backgroundColor: 'var(--text-main)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                     >
                                         Take Order
                                     </button>
                                 )}
-                                <button
-                                    onClick={() => markTableFree(selectedTableOrder.table_id, 'Cash')}
-                                    style={{ flex: 1, padding: '16px', backgroundColor: '#fbbf24', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
-                                >
-                                    Paid CASH
-                                </button>
-                                <button
-                                    onClick={() => markTableFree(selectedTableOrder.table_id, 'Online')}
-                                    style={{ flex: 1, padding: '16px', backgroundColor: '#60a5fa', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
-                                >
-                                    Paid ONLINE
-                                </button>
+                                {!isSplitPayment ? (
+                                    <>
+                                        <button
+                                            onClick={() => markTableFree(selectedTableOrder.table_id, 'Cash')}
+                                            style={{ height: '56px', flex: 1, backgroundColor: '#fbbf24', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                        >
+                                            Paid CASH
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setIsSplitPayment(true);
+                                                setSplitCashAmount(editTotal);
+                                                setSplitOnlineAmount(0);
+                                            }}
+                                            style={{ width: '56px', height: '56px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '1.5rem', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                            title="Split Payment (Cash + Online)"
+                                        >
+                                            +
+                                        </button>
+                                        <button
+                                            onClick={() => markTableFree(selectedTableOrder.table_id, 'Online')}
+                                            style={{ height: '56px', flex: 1, backgroundColor: '#60a5fa', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                        >
+                                            Paid ONLINE
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        disabled={splitCashAmount + splitOnlineAmount !== editTotal}
+                                        onClick={() => markTableFree(selectedTableOrder.table_id, 'Split', { cash: splitCashAmount, online: splitOnlineAmount })}
+                                        style={{ height: '56px', flex: 2, backgroundColor: 'var(--teal)', color: '#000', fontWeight: '700', borderRadius: '16px', cursor: (splitCashAmount + splitOnlineAmount !== editTotal) ? 'not-allowed' : 'pointer', opacity: (splitCashAmount + splitOnlineAmount !== editTotal) ? 0.5 : 1 }}
+                                    >
+                                        Confirm Split Payment (₹{splitCashAmount} + ₹{splitOnlineAmount})
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => setInvoiceOrder(selectedTableOrder)}
-                                    style={{ flex: 1, padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
+                                    style={{ height: '56px', width: '90px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', cursor: 'pointer' }}
                                 >
                                     Invoice
                                 </button>

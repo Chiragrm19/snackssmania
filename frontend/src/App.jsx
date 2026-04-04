@@ -5,6 +5,7 @@ import QRPage from './pages/QRPage';
 import MenuPage from './pages/MenuPage';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
 
 function App() {
   const [session, setSession] = useState(null);
@@ -41,6 +42,10 @@ function App() {
         <Route
           path="/admin"
           element={session ? <AdminPage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/dashboard"
+          element={session ? <DashboardPage /> : <Navigate to="/login" />}
         />
       </Routes>
     </BrowserRouter>
