@@ -82,7 +82,10 @@ const STYLES = `
 .ldb-chart-box { height:250px;margin-top:14px; }
 
 /* leaderboard */
-.ldb-lb-wrap { position:relative;height:480px;margin-top:20px; }
+.ldb-lb-wrap { position:relative;height:480px;margin-top:20px;overflow-y:auto;overflow-x:hidden;padding-right:10px; }
+.ldb-lb-wrap::-webkit-scrollbar { width:6px; }
+.ldb-lb-wrap::-webkit-scrollbar-track { background:rgba(255,255,255,.02);border-radius:10px; }
+.ldb-lb-wrap::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1);border-radius:10px; }
 .ldb-lb-item {
   position:absolute;left:0;right:0;display:flex;justify-content:space-between;align-items:center;
   padding:18px 22px;background:rgba(255,255,255,.02);
@@ -281,18 +284,88 @@ function DonutChart({ cash, online, chartRef: externalRef }) {
   return <canvas ref={target} />;
 }
 
+function CategoryPieChart({ data, chartRef: externalRef }) {
+  const ref = useRef(null);
+  const inst = useRef(null);
+  const target = externalRef || ref;
+
+  useEffect(() => {
+    if (!target.current) return;
+    if (inst.current) {
+      inst.current.data.labels = data.labels;
+      inst.current.data.datasets[0].data = data.data;
+      inst.current.update('active');
+      return;
+    }
+    inst.current = new Chart(target.current, {
+      type: 'doughnut',
+      data: {
+        labels: data.labels,
+        datasets: [{ data: data.data, backgroundColor: ['#F5A623', '#00C9A7', '#A78BFA', '#F472B6', '#60A5FA', '#FBBF24', '#34D399', '#F87171'], borderColor: '#080b14', borderWidth: 3, hoverOffset: 7 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
+        cutout: '65%',
+        plugins: {
+          legend: { position: 'right', labels: { color: 'rgba(255,255,255,.8)', font: { family: 'Outfit', size: 10 } } },
+          tooltip: { bodyFont: { family: 'JetBrains Mono' } },
+        },
+      },
+    });
+    return () => { inst.current?.destroy(); inst.current = null; };
+  }, [data]);
+
+  return <canvas ref={target} />;
+}
+
+function ParcelDonutChart({ dineIn, parcel, chartRef: externalRef }) {
+  const ref = useRef(null);
+  const inst = useRef(null);
+  const target = externalRef || ref;
+
+  useEffect(() => {
+    if (!target.current) return;
+    if (inst.current) {
+      inst.current.data.datasets[0].data = [dineIn, parcel];
+      inst.current.update('active');
+      return;
+    }
+    inst.current = new Chart(target.current, {
+      type: 'doughnut',
+      data: {
+        labels: ['Dine-In', 'Parcel'],
+        datasets: [{ data: [dineIn, parcel], backgroundColor: ['#A78BFA', '#F472B6'], borderColor: '#080b14', borderWidth: 3, hoverOffset: 7 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 500 },
+        cutout: '72%',
+        plugins: {
+          legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,.8)', font: { family: 'Outfit' } } },
+          tooltip: { bodyFont: { family: 'JetBrains Mono' } },
+        },
+      },
+    });
+    return () => { inst.current?.destroy(); inst.current = null; };
+  }, [dineIn, parcel]);
+
+  return <canvas ref={target} />;
+}
+
 /* ─── Leaderboard ─── */
 function Leaderboard({ items }) {
+  const displayItems = items.slice(0, 15);
   return (
     <div className="ldb-lb-wrap">
-      {items.slice(0, 5).map((item, i) => (
-        <div key={item.id} className="ldb-lb-item" style={{ top: i * 84 }}>
+      <div style={{ position: 'relative', height: displayItems.length * 84 }}>
+      {displayItems.map((item, i) => (
+        <div key={item.id} className="ldb-lb-item" style={{ top: i * 84, width: '100%' }}>
           <div className="ldb-lb-rank">#{i + 1}</div>
           <div className="ldb-lb-name">{item.emoji || '🍽️'} {item.name}</div>
           <div className="ldb-lb-units"><AnimatedNumber value={item.sales} /> units</div>
           <div className="ldb-lb-rev">₹<AnimatedNumber value={item.sales * item.price} isCurrency /></div>
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -377,12 +450,19 @@ function computeStats(orders, period, selectedDate = null, selectedMonth = null,
   }
   const revenue = filtered.reduce((s, o) => s + (o.total || 0), 0);
   let cash = 0, online = 0;
+  let parcelOrders = 0, parcelRevenue = 0;
   filtered.forEach(o => {
     const meta = (o.items || []).find(i => i.type === 'PAYMENT_METADATA');
     const method = meta?.method || o.payment_method || 'Cash';
     if (method === 'Cash') cash += o.total || 0; else online += o.total || 0;
+
+    const isParcel = o.table_id === 0 || (o.items || []).some(i => i.type === 'METADATA' && i.takeaway_no);
+    if (isParcel) {
+       parcelOrders++;
+       parcelRevenue += (o.total || 0);
+    }
   });
-  return { revenue, orders: filtered.length, cash, online, avgOrder: filtered.length > 0 ? Math.round(revenue / filtered.length) : 0, filteredOrders: filtered };
+  return { revenue, orders: filtered.length, cash, online, parcelOrders, parcelRevenue, avgOrder: filtered.length > 0 ? Math.round(revenue / filtered.length) : 0, filteredOrders: filtered };
 }
 
 function computeLeaderboard(filteredOrders, menuItems) {
@@ -398,7 +478,24 @@ function computeLeaderboard(filteredOrders, menuItems) {
   if (lb.length < 5 && menuItems.length) {
     menuItems.forEach(m => { if (!counts[m.name]) lb.push({ name: m.name, id: m.id, sales: 0, price: m.price, emoji: m.emoji || '🍽️' }); });
   }
-  return lb.slice(0, 8);
+  return lb.slice(0, 15);
+}
+
+function computeCategoryStats(filteredOrders, menuItems) {
+  const catRevs = {};
+  filteredOrders.forEach(o => {
+    (o.items || []).forEach(i => {
+      if (i.type === 'METADATA' || i.type === 'PAYMENT_METADATA' || i.type === 'LINK') return;
+      let cat = 'Other';
+      const mItem = menuItems.find(m => m.name === i.name || m.id === i.id);
+      if (mItem && mItem.category) cat = mItem.category;
+      
+      if (!catRevs[cat]) catRevs[cat] = 0;
+      catRevs[cat] += (i.price || 0) * (i.qty || 1);
+    });
+  });
+  const sortedKeys = Object.keys(catRevs).sort((a,b) => catRevs[b] - catRevs[a]);
+  return { labels: sortedKeys, data: sortedKeys.map(k => catRevs[k]) };
 }
 
 function computeHourly(filteredOrders) {
@@ -645,6 +742,7 @@ export default function DashboardPage() {
   const stats = computeStats(allOrders, period, selectedDate, selectedMonth, lastResetTime);
   const leaderboard = computeLeaderboard(stats.filteredOrders, menuItems);
   const hourly = computeHourly(stats.filteredOrders);
+  const categoryStats = computeCategoryStats(stats.filteredOrders, menuItems);
 
   const peakHour = hourly.labels[
     hourly.cash.map((c, i) => c + hourly.online[i]).reduce((mi, v, i, a) => v > a[mi] ? i : mi, 0)
@@ -761,24 +859,34 @@ export default function DashboardPage() {
               <div className="ldb-val"><AnimatedNumber value={stats.revenue} isCurrency /></div>
               <div className="ldb-sub ldb-pos">↑ {period === 'daily' ? 'Today' : 'This Month'}</div>
             </TiltCard>
-            <TiltCard delay={0.2}>
+            <TiltCard delay={0.1}>
               <div className="ldb-label">Orders</div>
               <div className="ldb-val"><AnimatedNumber value={stats.orders} /></div>
               <div className="ldb-sub ldb-pos">Live count</div>
+            </TiltCard>
+            <TiltCard delay={0.2}>
+              <div className="ldb-label">Parcel Rev.</div>
+              <div className="ldb-val"><AnimatedNumber value={stats.parcelRevenue} isCurrency /></div>
+              <div className="ldb-sub ldb-pos">Takeaway only</div>
+            </TiltCard>
+            <TiltCard delay={0.3}>
+              <div className="ldb-label">Parcel Orders</div>
+              <div className="ldb-val"><AnimatedNumber value={stats.parcelOrders} /></div>
+              <div className="ldb-sub ldb-pos">Takeaway counts</div>
             </TiltCard>
             <TiltCard delay={0.4}>
               <div className="ldb-label">Cash Collected</div>
               <div className="ldb-val"><AnimatedNumber value={stats.cash} isCurrency /></div>
             </TiltCard>
-            <TiltCard delay={0.6}>
+            <TiltCard delay={0.5}>
               <div className="ldb-label">Online / UPI</div>
               <div className="ldb-val"><AnimatedNumber value={stats.online} isCurrency /></div>
             </TiltCard>
-            <TiltCard delay={0.8} className="ldb-span2">
+            <TiltCard delay={0.6}>
               <div className="ldb-label">Avg Order Value</div>
               <div className="ldb-val"><AnimatedNumber value={stats.avgOrder} isCurrency /></div>
             </TiltCard>
-            <TiltCard delay={1.0} className="ldb-span2">
+            <TiltCard delay={0.7}>
               <div className="ldb-label">Peak Hour</div>
               <div className="ldb-val" style={{ fontFamily: "'JetBrains Mono',monospace" }}>{peakHour}</div>
             </TiltCard>
@@ -786,13 +894,24 @@ export default function DashboardPage() {
 
           {/* Charts */}
           <div className="ldb-chart-row">
-            <TiltCard delay={1.2}>
+            <TiltCard delay={0.8}>
               <div className="ldb-label">Hourly Cash vs Online Revenue</div>
               <div className="ldb-chart-box"><BarChart data={displayHourly} /></div>
             </TiltCard>
-            <TiltCard delay={1.4}>
+            <TiltCard delay={1.0}>
               <div className="ldb-label">Payment Split</div>
               <div className="ldb-chart-box"><DonutChart cash={stats.cash} online={stats.online} /></div>
+            </TiltCard>
+          </div>
+
+          <div className="ldb-chart-row" style={{ marginTop: '26px', paddingBottom: '30px' }}>
+            <TiltCard delay={1.2}>
+              <div className="ldb-label">Category Revenue Breakdown</div>
+              <div className="ldb-chart-box"><CategoryPieChart data={categoryStats} /></div>
+            </TiltCard>
+            <TiltCard delay={1.4}>
+              <div className="ldb-label">Dine-In vs Parcel (₹)</div>
+              <div className="ldb-chart-box"><ParcelDonutChart dineIn={stats.revenue - stats.parcelRevenue} parcel={stats.parcelRevenue} /></div>
             </TiltCard>
           </div>
 

@@ -226,14 +226,28 @@ const AdminPage = () => {
         if (!newOrder && orders.length > 0) {
             const unseen = orders.find(o => o.status === 'new' && notifiedOrderTotals[o.id] !== o.total);
             if (unseen) {
-                // Play procedural chime
-                playOrderBeep();
-                
                 setNewOrder(unseen);
                 setNotifiedOrderTotals(prev => ({ ...prev, [unseen.id]: unseen.total }));
             }
         }
     }, [orders, newOrder, notifiedOrderTotals]);
+
+    // Handle looping beep for new orders
+    useEffect(() => {
+        let interval;
+        if (newOrder) {
+            // Play initial beep
+            playOrderBeep();
+            
+            // Start looping interval
+            interval = setInterval(() => {
+                playOrderBeep();
+            }, 300); // Beep every 0.3 seconds
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [newOrder]);
 
     // --- Automated Stock Deduction ---
     useEffect(() => {
