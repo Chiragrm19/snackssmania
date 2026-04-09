@@ -22,13 +22,35 @@ const OrderPopup = ({ order, onAccept, onDismiss, onUpdateItemQty }) => {
             <div className="order-popup glass animate-fade" style={{
                 width: '100%',
                 maxWidth: '600px',
-                borderRadius: '24px',
+                borderRadius: '32px',
                 backgroundColor: 'var(--bg-surface)',
-                overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)'
+                boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)',
+                position: 'relative'
             }}>
+                <button 
+                    onClick={onDismiss}
+                    style={{
+                        position: 'absolute',
+                        top: '20px',
+                        right: '25px',
+                        background: 'var(--glass)',
+                        border: '1px solid var(--border-subtle)',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '18px',
+                        color: 'var(--text-main)',
+                        fontSize: '1.2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        zIndex: 10
+                    }}
+                >
+                    ✕
+                </button>
                 <div style={{
                     padding: '24px 32px',
                     borderBottom: '1px solid var(--border-subtle)',
@@ -47,16 +69,43 @@ const OrderPopup = ({ order, onAccept, onDismiss, onUpdateItemQty }) => {
                         alignItems: 'center',
                         marginBottom: '24px'
                     }}>
-                        <span style={{ fontSize: '1.5rem', fontWeight: '700', letterSpacing: '-0.02em' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span style={{ fontSize: '1.5rem', fontWeight: '700', letterSpacing: '-0.02em' }}>
+                                {(() => {
+                                    if (order.table_id === 0) {
+                                        const meta = order.items.find(i => i.type === 'METADATA');
+                                        return meta ? `Parcel #TK-${meta.takeaway_no}` : 'Parcel';
+                                    }
+                                    return `Table ${order.table_id}`;
+                                })()}
+                            </span>
+                            {/* Local Timer Logic */}
                             {(() => {
-                                if (order.table_id === 0) {
-                                    const meta = order.items.find(i => i.type === 'METADATA');
-                                    return meta ? `Parcel #TK-${meta.takeaway_no}` : 'Parcel';
-                                }
-                                return `Table ${order.table_id}`;
+                                const [elapsed, setElapsed] = React.useState(0);
+                                React.useEffect(() => {
+                                    const start = new Date(order.created_at).getTime();
+                                    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+                                    tick();
+                                    const id = setInterval(tick, 1000);
+                                    return () => clearInterval(id);
+                                }, [order.created_at]);
+                                
+                                const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                                const s = String(elapsed % 60).padStart(2, '0');
+                                
+                                return (
+                                    <span style={{ 
+                                        fontSize: '0.85rem', 
+                                        fontWeight: '800', 
+                                        color: elapsed > 300 ? '#f87171' : 'var(--teal)',
+                                        fontFamily: 'monospace'
+                                    }}>
+                                        ⏱ {m}:{s} ELAPSED
+                                    </span>
+                                );
                             })()}
-                        </span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{new Date().toLocaleTimeString()}</span>
+                        </div>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
 
                     <div className="items-list" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px' }}>

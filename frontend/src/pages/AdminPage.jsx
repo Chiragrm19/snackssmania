@@ -75,6 +75,7 @@ const AdminPage = () => {
     const [showTransferModal, setShowTransferModal] = useState(null);
     const [showCombineModal, setShowCombineModal] = useState(null);
     const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+    const [showCustomizeMenu, setShowCustomizeMenu] = useState(false);
     const [historySubTab, setHistorySubTab] = useState('dine-in');
     const [historyOrder, setHistoryOrder] = useState(null);
     
@@ -186,6 +187,11 @@ const AdminPage = () => {
     };
 
     useEffect(() => {
+        if (!localStorage.getItem('dash_last_reset')) {
+            const startOfToday = new Date();
+            startOfToday.setHours(0, 0, 0, 0);
+            localStorage.setItem('dash_last_reset', startOfToday.toISOString());
+        }
         fetchInitialData();
 
         const pollInterval = setInterval(() => {
@@ -604,6 +610,20 @@ const AdminPage = () => {
         }
     };
 
+    const deleteHistoryOrder = async (orderId) => {
+        if (!confirm('Are you sure you want to PERMANENTLY delete this order from history? This cannot be undone.')) return;
+        try {
+            const { error } = await supabase.from('orders').delete().eq('id', orderId);
+            if (error) throw error;
+            setOrders(prev => prev.filter(o => o.id !== orderId));
+            setHistoryOrder(null);
+            alert('Order deleted successfully.');
+        } catch (err) {
+            console.error('Error deleting order:', err.message);
+            alert('Failed to delete order: ' + err.message);
+        }
+    };
+
     const markTableFree = async (tableId, paymentMethod = null, splitInfo = null) => {
         if (!tableId) return;
         try {
@@ -626,6 +646,15 @@ const AdminPage = () => {
 
                 if (metaIdx > -1) newItems[metaIdx] = metaPayload;
                 else newItems.push(metaPayload);
+
+                // Add Customer Metadata if details provided
+                if (payPhone && payName) {
+                    const custIdx = newItems.findIndex(i => i.type === 'CUSTOMER_METADATA');
+                    const custPayload = { type: 'CUSTOMER_METADATA', name: payName, phone: payPhone };
+                    if (custIdx > -1) newItems[custIdx] = custPayload;
+                    else newItems.push(custPayload);
+                }
+
                 updates.items = newItems;
 
                 await supabase.from('orders').update(updates).eq('id', activeOrder.id);
@@ -677,6 +706,15 @@ const AdminPage = () => {
                 };
                 if (metaIdx > -1) newItems[metaIdx] = metaPayload;
                 else newItems.push(metaPayload);
+
+                // Add Customer Metadata if details provided
+                if (payPhone && payName) {
+                    const custIdx = newItems.findIndex(i => i.type === 'CUSTOMER_METADATA');
+                    const custPayload = { type: 'CUSTOMER_METADATA', name: payName, phone: payPhone };
+                    if (custIdx > -1) newItems[custIdx] = custPayload;
+                    else newItems.push(custPayload);
+                }
+
                 updates.items = newItems;
             }
 
@@ -894,6 +932,9 @@ const AdminPage = () => {
     };
 
     const getStats = () => {
+        const lastReset = localStorage.getItem('dash_last_reset');
+        const resetTime = lastReset ? new Date(lastReset).getTime() : 0;
+
         const occupiedTableIds = new Set(
             orders.filter(o => o.status !== 'paid' && o.status !== 'rejected').map(o => o.table_id)
         );
@@ -901,8 +942,13 @@ const AdminPage = () => {
         const free = tables.length - occupied;
         const activeOrders = orders.length;
 
-        // Revenue Breakdown
-        const paidOrders = orders.filter(o => o.status === 'paid');
+        // Revenue Breakdown (Filtered by last reset)
+        const paidOrders = orders.filter(o => {
+            if (o.status !== 'paid') return false;
+            if (!resetTime) return true;
+            return new Date(o.created_at).getTime() > resetTime;
+        });
+
         const revenue = paidOrders.reduce((acc, curr) => acc + curr.total, 0);
         
         const cashRevenue = paidOrders.reduce((acc, curr) => {
@@ -1106,9 +1152,9 @@ const AdminPage = () => {
                         { label: 'Occupied',  val: stats.occupied,      icon: '🪑', c: 'var(--text-main)' },
                         { label: 'Free',       val: stats.free,          icon: '✅', c: 'var(--accent-green)' },
                         { label: 'Orders',     val: stats.activeOrders,  icon: '📋', c: 'var(--accent-purple)' },
-                        { label: 'Total Rev',  val: `₹${stats.revenue}`, icon: '💰', c: 'var(--text-main)' },
-                        { label: 'Cash',       val: `₹${stats.cashRevenue}`, icon: '💵', c: '#fbbf24' },
-                        { label: 'Online',     val: `₹${stats.onlineRevenue}`, icon: '💳', c: '#60a5fa' }
+                        { label: 'Daily Rev',  val: `₹${stats.revenue}`, icon: '💰', c: 'var(--text-main)' },
+                        { label: 'Daily Cash',       val: `₹${stats.cashRevenue}`, icon: '💵', c: '#fbbf24' },
+                        { label: 'Daily Online',     val: `₹${stats.onlineRevenue}`, icon: '💳', c: '#60a5fa' }
                     ].map((s, i) => (
                         <div key={i} className="glass" style={{ padding: '16px 12px', borderRadius: '18px', textAlign: 'center' }}>
                             <p style={{ fontSize: '1.2rem', marginBottom: '4px' }}>{s.icon}</p>
@@ -1813,30 +1859,100 @@ const AdminPage = () => {
                         justifyContent: 'center',
                         padding: '24px'
                     }}>
-                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)', display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                                <h2 style={{ fontSize: '1.2rem', fontWeight: '600', letterSpacing: '-0.02em', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                    {(() => {
-                                        if (selectedTableOrder.table_id === 0) {
-                                            const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
-                                            return `Parcel Order #${meta ? `P-${meta.takeaway_no}` : selectedTableOrder.id}`;
-                                        }
-                                        return `Table ${selectedTableOrder.table_id} Order`;
-                                    })()}
+                        <div className="glass modal-content" style={{ width: '100%', maxWidth: '560px', borderRadius: '32px', padding: '32px', backgroundColor: 'var(--bg-surface)', boxShadow: '0 24px 48px rgba(0,0,0,0.5), 0 0 0 1px var(--border-subtle)', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '32px', alignItems: 'center', gap: '12px', position: 'relative' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                    <h2 style={{ fontSize: '1.4rem', fontWeight: '800', letterSpacing: '-0.02em', color: 'var(--text-main)', margin: 0 }}>
+                                        {(() => {
+                                            if (selectedTableOrder.table_id === 0) {
+                                                const meta = selectedTableOrder.items.find(i => i.type === 'METADATA');
+                                                return `Parcel #${meta ? meta.takeaway_no : selectedTableOrder.id}`;
+                                            }
+                                            return `Table ${selectedTableOrder.table_id}`;
+                                        })()}
+                                    </h2>
+
                                     {selectedTableOrder.table_id !== 0 && (
-                                        <>
+                                        <div style={{ position: 'relative' }}>
                                             <button 
-                                                onClick={() => setShowTransferModal(selectedTableOrder)}
-                                                style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '12px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                                            >Transfer ➡️</button>
-                                            <button 
-                                                onClick={() => setShowCombineModal(selectedTableOrder)}
-                                                style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: '12px', backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                                            >Combine 🔗</button>
-                                        </>
+                                                onClick={() => setShowCustomizeMenu(!showCustomizeMenu)}
+                                                style={{ 
+                                                    padding: '8px 16px', 
+                                                    borderRadius: '12px', 
+                                                    background: 'var(--glass)', 
+                                                    border: '1px solid var(--border-subtle)', 
+                                                    color: 'var(--text-main)', 
+                                                    fontSize: '0.85rem', 
+                                                    fontWeight: '700', 
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px'
+                                                }}
+                                            >
+                                                ⚙️ Customize ▼
+                                            </button>
+                                            
+                                            {showCustomizeMenu && (
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    top: '100%',
+                                                    left: 0,
+                                                    marginTop: '8px',
+                                                    background: 'rgba(30, 30, 30, 0.95)',
+                                                    backdropFilter: 'blur(20px)',
+                                                    border: '1px solid var(--border-subtle)',
+                                                    borderRadius: '16px',
+                                                    padding: '8px',
+                                                    zIndex: 2100,
+                                                    minWidth: '160px',
+                                                    boxShadow: '0 20px 40px rgba(0,0,0,0.4)'
+                                                }}>
+                                                    <button 
+                                                        onClick={() => { setShowTransferModal(selectedTableOrder); setShowCustomizeMenu(false); }}
+                                                        style={{ width: '100%', padding: '12px', textAlign: 'left', background: 'none', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                                        className="menu-item-hover"
+                                                    >
+                                                        ➡️ Transfer Table
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => { setShowCombineModal(selectedTableOrder); setShowCustomizeMenu(false); }}
+                                                        style={{ width: '100%', padding: '12px', textAlign: 'left', background: 'none', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                                        className="menu-item-hover"
+                                                    >
+                                                        🔗 Combine Tables
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
-                                </h2>
-                                <button onClick={() => setSelectedTableOrder(null)} style={{ backgroundColor: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', fontSize: '1.2rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>✕</button>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                    {selectedTableOrder.table_id !== 0 && (
+                                        <TableTimer startTime={selectedTableOrder.created_at} />
+                                    )}
+                                    <button 
+                                        onClick={() => setSelectedTableOrder(null)} 
+                                        style={{ 
+                                            backgroundColor: 'rgba(255,255,255,0.05)', 
+                                            border: '1px solid var(--border-subtle)', 
+                                            width: '40px', 
+                                            height: '40px', 
+                                            borderRadius: '20px', 
+                                            fontSize: '1.2rem', 
+                                            color: 'var(--text-main)', 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            justifyContent: 'center', 
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        className="close-btn-hover"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
                             </div>
 
                             <div style={{ marginBottom: '32px' }}>
@@ -2665,8 +2781,21 @@ const AdminPage = () => {
                                 <h2 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '4px' }}>
                                     {historyOrder.table_id === 0 ? 'Parcel Order' : `Table ${historyOrder.table_id}`}
                                 </h2>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {new Date(historyOrder.created_at).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' })}
+                                    {historyOrder.updated_at && (
+                                        <span style={{ color: 'var(--teal)', fontWeight: '700' }}>
+                                            • Spent: {(() => {
+                                                const start = new Date(historyOrder.created_at).getTime();
+                                                const end = new Date(historyOrder.updated_at).getTime();
+                                                const diff = Math.floor((end - start) / 1000);
+                                                if (diff <= 0) return '0m';
+                                                const h = Math.floor(diff / 3600);
+                                                const m = Math.floor((diff % 3600) / 60);
+                                                return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                                            })()}
+                                        </span>
+                                    )}
                                 </p>
                             </div>
                             <button onClick={() => setHistoryOrder(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white', cursor: 'pointer' }}>✕</button>
@@ -2690,6 +2819,21 @@ const AdminPage = () => {
                             </div>
                         </div>
 
+                        {/* Customer Details section - Conditional */}
+                        {(() => {
+                            const custMeta = (historyOrder.items || []).find(i => i.type === 'CUSTOMER_METADATA');
+                            if (!custMeta) return null;
+                            return (
+                                <div className="glass" style={{ padding: '16px 24px', borderRadius: '16px', marginBottom: '24px', backgroundColor: 'rgba(0, 201, 167, 0.05)', border: '1px solid rgba(0, 201, 167, 0.2)' }}>
+                                    <p style={{ color: 'var(--teal)', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>👤 Customer Details</p>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: '600', fontSize: '1rem' }}>{custMeta.name}</span>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{custMeta.phone}</span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderRadius: '16px', background: 'var(--glass)', border: '1px solid var(--border-subtle)' }}>
                             <div style={{ fontSize: '0.85rem' }}>
                                 <p style={{ color: 'var(--text-muted)', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payment Method</p>
@@ -2706,9 +2850,20 @@ const AdminPage = () => {
                             </div>
                         </div>
 
-                        <button onClick={() => { setInvoiceOrder(historyOrder); setHistoryOrder(null); }} style={{ width: '100%', marginTop: '24px', padding: '16px', borderRadius: '16px', background: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', border: 'none', cursor: 'pointer' }}>
-                            View / Print Invoice
-                        </button>
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                            <button 
+                                onClick={() => deleteHistoryOrder(historyOrder.id)}
+                                style={{ flex: 1, padding: '16px', borderRadius: '16px', background: 'rgba(248,113,113,0.1)', color: '#f87171', fontWeight: '800', border: '1px solid rgba(248,113,113,0.2)', cursor: 'pointer' }}
+                            >
+                                Delete Order
+                            </button>
+                            <button 
+                                onClick={() => { setInvoiceOrder(historyOrder); setHistoryOrder(null); }} 
+                                style={{ flex: 2, padding: '16px', borderRadius: '16px', background: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', border: 'none', cursor: 'pointer' }}
+                            >
+                                View / Print Invoice
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
