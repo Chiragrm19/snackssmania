@@ -6,6 +6,40 @@ import InventoryManager from '../components/InventoryManager';
 import BulkQRModal from '../components/BulkQRModal';
 import { QRCodeSVG } from 'qrcode.react';
 
+/* ─── Table Occupation Timer ─── */
+function TableTimer({ startTime, dark }) {
+    const [elapsed, setElapsed] = React.useState(0);
+    React.useEffect(() => {
+        const start = new Date(startTime).getTime();
+        const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, [startTime]);
+    const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+    const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    return (
+        <div style={{
+            marginTop: '14px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '5px 12px',
+            borderRadius: '20px',
+            background: dark ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.08)',
+            border: dark ? '1px solid rgba(0,0,0,0.15)' : '1px solid rgba(255,255,255,0.1)',
+            fontFamily: 'monospace',
+            fontSize: '0.85rem',
+            fontWeight: '700',
+            letterSpacing: '0.05em',
+            color: dark ? 'rgba(0,0,0,0.75)' : (elapsed > 3600 ? '#f87171' : elapsed > 1800 ? '#fbbf24' : '#4ade80'),
+        }}>
+            ⏱ {h}:{m}:{s}
+        </div>
+    );
+}
+
 const AdminPage = () => {
     const [tables, setTables] = useState([]);
     const [orders, setOrders] = useState([]);
@@ -41,6 +75,8 @@ const AdminPage = () => {
     const [showTransferModal, setShowTransferModal] = useState(null);
     const [showCombineModal, setShowCombineModal] = useState(null);
     const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+    const [historySubTab, setHistorySubTab] = useState('dine-in');
+    const [historyOrder, setHistoryOrder] = useState(null);
     
     // Split Payment & Manual Edit States
     const [editTotal, setEditTotal] = useState(0);
@@ -1091,6 +1127,7 @@ const AdminPage = () => {
                         { id: 'inventory', label: '🏷️ Inventory' },
                         { id: 'categories', label: '📂 Categories' },
                         { id: 'customers', label: '👥 Customers' },
+                        { id: 'history',   label: '📜 History' },
                     ].map(t => (
                         <button
                             key={t.id}
@@ -1418,7 +1455,110 @@ const AdminPage = () => {
                             </div>
                         </div>
                     </div>
-                ) : activeTab === 'inventory' ? (
+                ) : activeTab === 'history' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                <h1 style={{ fontSize: '1.6rem', fontWeight: '800' }}>📜 Order History</h1>
+                            </div>
+                            {/* Sub-tabs */}
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+                                {[{ id: 'dine-in', label: '🪑 Dine-In' }, { id: 'parcel', label: '📦 Parcel' }].map(st => (
+                                    <button
+                                        key={st.id}
+                                        onClick={() => setHistorySubTab(st.id)}
+                                        style={{
+                                            padding: '10px 24px',
+                                            borderRadius: '50px',
+                                            fontWeight: '700',
+                                            fontSize: '0.9rem',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: historySubTab === st.id ? 'var(--accent-white)' : 'var(--glass)',
+                                            color: historySubTab === st.id ? 'var(--bg-dark)' : 'var(--text-muted)',
+                                            transition: 'all 0.2s',
+                                        }}
+                                    >
+                                        {st.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '600px', overflowY: 'auto', paddingRight: '4px' }}>
+                                {(() => {
+                                    const historyOrders = orders.filter(o =>
+                                        (o.status === 'paid' || o.status === 'rejected') &&
+                                        (historySubTab === 'parcel' ? o.table_id === 0 : o.table_id > 0)
+                                    ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                                    if (historyOrders.length === 0) {
+                                        return (
+                                            <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                                                No {historySubTab === 'parcel' ? 'parcel' : 'dine-in'} order history yet.
+                                            </div>
+                                        );
+                                    }
+
+                                    return historyOrders.map(order => {
+                                        const meta = (order.items || []).find(i => i.type === 'METADATA');
+                                        const payMeta = (order.items || []).find(i => i.type === 'PAYMENT_METADATA');
+                                        const label = historySubTab === 'parcel'
+                                            ? (meta ? `P-${meta.takeaway_no}` : `#${order.id}`)
+                                            : `Table ${order.table_id}`;
+                                        const method = payMeta?.method || order.payment_method || 'Cash';
+                                        const methodColor = method === 'Cash' ? '#fbbf24' : method === 'Online' ? '#60a5fa' : '#a78bfa';
+                                        const displayItems = (order.items || []).filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA' && i.type !== 'LINK');
+                                        const time = new Date(order.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+
+                                        return (
+                                            <div
+                                                key={order.id}
+                                                onClick={() => setHistoryOrder(order)}
+                                                className="glass"
+                                                style={{
+                                                    padding: '16px 20px',
+                                                    borderRadius: '16px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    gap: '16px',
+                                                    transition: 'background 0.2s',
+                                                    border: order.status === 'rejected' ? '1px solid rgba(248,113,113,0.3)' : '1px solid var(--border-subtle)',
+                                                }}
+                                            >
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                                                        <span style={{ fontWeight: '700', fontSize: '1rem' }}>{label}</span>
+                                                        <span style={{
+                                                            padding: '3px 10px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '700',
+                                                            background: order.status === 'paid' ? 'rgba(74,222,128,0.15)' : 'rgba(248,113,113,0.15)',
+                                                            color: order.status === 'paid' ? '#4ade80' : '#f87171',
+                                                            border: `1px solid ${order.status === 'paid' ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}`
+                                                        }}>
+                                                            {order.status.toUpperCase()}
+                                                        </span>
+                                                        <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '700', background: 'rgba(255,255,255,0.06)', color: methodColor, border: `1px solid ${methodColor}44` }}>
+                                                            {method}
+                                                        </span>
+                                                    </div>
+                                                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {displayItems.slice(0, 4).map(i => `${i.qty}x ${i.name}`).join(', ')}{displayItems.length > 4 ? ` +${displayItems.length - 4} more` : ''}
+                                                    </p>
+                                                </div>
+                                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                    <p style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>₹{order.total}</p>
+                                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{time}</p>
+                                                </div>
+                                                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>›</span>
+                                            </div>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                 ) : activeTab === 'inventory' ? (
                     <InventoryManager 
                         materials={materials} setMaterials={setMaterials}
                         recipes={invRecipes} setRecipes={setInvRecipes}
@@ -1479,8 +1619,12 @@ const AdminPage = () => {
                                     <h3 style={{ fontSize: '1.6rem', marginBottom: '8px', fontWeight: '700', letterSpacing: '-0.02em', color: isOccupied ? 'var(--bg-dark)' : 'var(--text-main)' }}>Table {table.id}</h3>
                                     <p style={{ color: isOccupied ? 'rgba(0,0,0,0.6)' : 'var(--text-muted)', fontSize: '0.9rem', fontWeight: '500' }}>{table.seats} Seats</p>
 
+                                    {(isOccupied || hasNewOrder) && tableOrder?.created_at && (
+                                        <TableTimer startTime={tableOrder.created_at} dark={isOccupied && !isLinked} />
+                                    )}
+
                                     {(isOccupied || hasNewOrder) ? (
-                                        <div style={{ marginTop: '24px', color: isOccupied ? 'var(--bg-dark)' : 'var(--text-main)', fontSize: '0.85rem', fontWeight: '600', letterSpacing: '0.05em' }}>
+                                        <div style={{ marginTop: '12px', color: isOccupied ? 'var(--bg-dark)' : 'var(--text-main)', fontSize: '0.85rem', fontWeight: '600', letterSpacing: '0.05em' }}>
                                             VIEW ORDER →
                                         </div>
                                     ) : (
@@ -2509,6 +2653,62 @@ const AdminPage = () => {
                                 );
                             })}
                         </div>
+                    </div>
+                </div>
+            )}
+            {/* History Order Detail Modal */}
+            {historyOrder && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 6000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)', padding: '20px' }}>
+                    <div className="glass modal-content" style={{ width: '100%', maxWidth: '500px', borderRadius: '32px', padding: '32px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <div>
+                                <h2 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '4px' }}>
+                                    {historyOrder.table_id === 0 ? 'Parcel Order' : `Table ${historyOrder.table_id}`}
+                                </h2>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                    {new Date(historyOrder.created_at).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' })}
+                                </p>
+                            </div>
+                            <button onClick={() => setHistoryOrder(null)} style={{ background: 'var(--glass)', border: '1px solid var(--border-subtle)', width: '36px', height: '36px', borderRadius: '18px', color: 'white', cursor: 'pointer' }}>✕</button>
+                        </div>
+
+                        <div className="glass" style={{ padding: '24px', borderRadius: '20px', marginBottom: '24px', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                {historyOrder.items.filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA' && i.type !== 'LINK').map((item, idx) => (
+                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            <span style={{ fontWeight: '800', color: 'var(--teal)' }}>{item.qty}x</span>
+                                            <span style={{ fontWeight: '600' }}>{item.name}</span>
+                                        </div>
+                                        <span style={{ fontWeight: '700', color: 'var(--text-muted)' }}>₹{item.price * item.qty}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: '700', color: 'var(--text-muted)', fontSize: '0.9rem' }}>TOTAL AMOUNT</span>
+                                <span style={{ fontSize: '1.6rem', fontWeight: '900', color: 'var(--text-main)' }}>₹{historyOrder.total}</span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderRadius: '16px', background: 'var(--glass)', border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ fontSize: '0.85rem' }}>
+                                <p style={{ color: 'var(--text-muted)', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payment Method</p>
+                                <p style={{ fontSize: '1rem', fontWeight: '800', color: historyOrder.payment_method === 'Online' ? '#60a5fa' : '#fbbf24' }}>
+                                    {((order) => {
+                                        const payMeta = (order.items || []).find(i => i.type === 'PAYMENT_METADATA');
+                                        return payMeta?.method || order.payment_method || 'Cash';
+                                    })(historyOrder)}
+                                </p>
+                            </div>
+                            <div style={{ textAlign: 'right', fontSize: '0.85rem' }}>
+                                <p style={{ color: 'var(--text-muted)', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</p>
+                                <p style={{ fontSize: '1rem', fontWeight: '800', color: historyOrder.status === 'paid' ? '#4ade80' : '#f87171' }}>{historyOrder.status.toUpperCase()}</p>
+                            </div>
+                        </div>
+
+                        <button onClick={() => { setInvoiceOrder(historyOrder); setHistoryOrder(null); }} style={{ width: '100%', marginTop: '24px', padding: '16px', borderRadius: '16px', background: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', border: 'none', cursor: 'pointer' }}>
+                            View / Print Invoice
+                        </button>
                     </div>
                 </div>
             )}
