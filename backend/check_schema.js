@@ -1,24 +1,37 @@
-require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config({ path: '../frontend/.env' });
 
-const supabase = createClient(
-    process.env.VITE_SUPABASE_URL,
-    process.env.VITE_SUPABASE_ANON_KEY
-);
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-async function addColumn() {
-    console.log('Attempting to add takeaway_no column...');
-    // Supabase client doesn't support ALTER TABLE directly. 
-    // We would need the service role key or use the SQL editor.
-    // However, I can try to insert an object with a new key and see if it sticks (jsonb columns handle this, but normal columns don't).
+async function checkSchema() {
+    const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .limit(1);
     
-    // Let's check the current schema by fetching one order.
-    const { data, error } = await supabase.from('orders').select('*').limit(1).single();
     if (error) {
-        console.error('Error fetching order schema:', error);
+        console.error('Error:', error);
     } else {
-        console.log('Current order columns:', Object.keys(data));
+        if (data.length > 0) {
+            console.log('Columns:', Object.keys(data[0]));
+        } else {
+            console.log('No data, inserting a dummy order to check schema...');
+            const { error: insertError, data: insertData } = await supabase.from('orders').insert({
+                table_id: 1,
+                items: [],
+                total: 0,
+                status: 'test'
+            }).select();
+            if (insertError) {
+                console.error('Insert error (might reveal schema):', insertError);
+            } else {
+                console.log('Columns:', Object.keys(insertData[0]));
+                await supabase.from('orders').delete().eq('id', insertData[0].id);
+            }
+        }
     }
 }
 
-addColumn();
+checkSchema();

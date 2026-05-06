@@ -625,14 +625,15 @@ const AdminPage = () => {
     };
 
     const markTableFree = async (tableId, paymentMethod = null, splitInfo = null) => {
-        if (!tableId) return;
+        if (tableId === undefined || tableId === null) return;
+        const numTableId = Number(tableId);
+        
         try {
             // Find active order for this table
-            const activeOrder = orders.find(o => o.table_id === tableId && o.status !== 'paid' && o.status !== 'rejected');
+            const activeOrder = orders.find(o => Number(o.table_id) === numTableId && o.status !== 'paid' && o.status !== 'rejected');
             
             if (activeOrder) {
                 const updates = { status: 'paid' };
-                if (paymentMethod) updates.payment_method = paymentMethod;
 
                 // Handle PAYMENT_METADATA for breakdown
                 let newItems = [...(activeOrder.items || [])];
@@ -657,16 +658,21 @@ const AdminPage = () => {
 
                 updates.items = newItems;
 
-                await supabase.from('orders').update(updates).eq('id', activeOrder.id);
+                const { error: updateError } = await supabase.from('orders').update(updates).eq('id', activeOrder.id);
+                if (updateError) throw updateError;
             }
 
             // Free the primary table
-            await supabase.from('tables').update({ is_free: true }).eq('id', tableId);
+            if (numTableId > 0) {
+                await supabase.from('tables').update({ is_free: true }).eq('id', numTableId);
+            }
 
             // Free any linked tables
-            const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && o.items[0].targetTable === tableId);
+            const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && Number(o.items[0].targetTable) === numTableId);
             for (const linked of linkedOrders) {
-                await supabase.from('tables').update({ is_free: true }).eq('id', linked.table_id);
+                if (Number(linked.table_id) > 0) {
+                    await supabase.from('tables').update({ is_free: true }).eq('id', linked.table_id);
+                }
                 await supabase.from('orders').update({ status: 'paid' }).eq('id', linked.id);
             }
 
@@ -677,8 +683,8 @@ const AdminPage = () => {
             }
 
             // Local state updates
-            setTables(prev => prev.map(t => t.id === tableId || linkedOrders.some(lo => lo.table_id === t.id) ? { ...t, is_free: true } : t));
-            setOrders(prev => prev.filter(o => (o.table_id !== tableId && !linkedOrders.some(lo => lo.id === o.id)) || o.status === 'paid'));
+            setTables(prev => prev.map(t => Number(t.id) === numTableId || linkedOrders.some(lo => Number(lo.table_id) === Number(t.id)) ? { ...t, is_free: true } : t));
+            setOrders(prev => prev.filter(o => (Number(o.table_id) !== numTableId && !linkedOrders.some(lo => lo.id === o.id)) || o.status === 'paid'));
 
             setSelectedTableOrder(null);
             setIsSplitPayment(false);
@@ -692,7 +698,6 @@ const AdminPage = () => {
     const completeTakeaway = async (orderId, paymentMethod, splitInfo = null) => {
         try {
             const updates = { status: 'paid' };
-            if (paymentMethod) updates.payment_method = paymentMethod;
 
             // Handle metadata for breakdown
             const { data: orderToFix } = await supabase.from('orders').select('items').eq('id', orderId).maybeSingle();
@@ -752,7 +757,27 @@ const AdminPage = () => {
                 .eq('id', orderId);
 
             if (error) throw error;
+            
+            // Also free the associated table
+            const numTableId = Number(order.table_id);
+            if (numTableId > 0) {
+                await supabase.from('tables').update({ is_free: true }).eq('id', numTableId);
+                
+                // Free any linked tables
+                const linkedOrders = orders.filter(o => o.items?.length === 1 && o.items[0].type === 'LINK' && Number(o.items[0].targetTable) === numTableId);
+                for (const linked of linkedOrders) {
+                    if (Number(linked.table_id) > 0) {
+                        await supabase.from('tables').update({ is_free: true }).eq('id', linked.table_id);
+                    }
+                    await supabase.from('orders').update({ status: 'paid' }).eq('id', linked.id);
+                }
+                
+                // Update local tables state immediately
+                setTables(prev => prev.map(t => Number(t.id) === numTableId || linkedOrders.some(lo => Number(lo.table_id) === Number(t.id)) ? { ...t, is_free: true } : t));
+            }
+
             fetchOrders();
+            fetchTables();
             setInvoiceOrder(null);
         } catch (err) {
             console.error('Error recording payment:', err.message);
