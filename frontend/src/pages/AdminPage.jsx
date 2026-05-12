@@ -194,11 +194,6 @@ const AdminPage = () => {
         }
         fetchInitialData();
 
-        const pollInterval = setInterval(() => {
-            fetchTables();
-            fetchOrders();
-        }, 1500);
-
         const channel = supabase
             .channel('admin-ops')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
@@ -213,7 +208,6 @@ const AdminPage = () => {
             .subscribe();
 
         return () => {
-            clearInterval(pollInterval);
             supabase.removeChannel(channel);
         };
     }, []);
@@ -344,6 +338,19 @@ const AdminPage = () => {
         }
     }, [orders, materials, invRecipes, deductedOrders]);
 
+    // --- Sync selectedTableOrder and editTotal with live orders ---
+    useEffect(() => {
+        if (selectedTableOrder) {
+            const liveOrder = orders.find(o => o.id === selectedTableOrder.id);
+            if (liveOrder) {
+                if (JSON.stringify(liveOrder.items) !== JSON.stringify(selectedTableOrder.items) || liveOrder.total !== selectedTableOrder.total) {
+                    setSelectedTableOrder(liveOrder);
+                    setEditTotal(liveOrder.total || 0);
+                }
+            }
+        }
+    }, [orders]);
+
     const handleImageUpload = async (file) => {
         if (!file) return null;
         setIsUploading(true);
@@ -404,7 +411,9 @@ const AdminPage = () => {
                     if (idx > -1) updatedItems[idx].qty += newItem.qty;
                     else updatedItems.push({ ...newItem, isNew: false, qty: newItem.qty });
                 });
-                const newTotal = orderToUpdate.total + items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+                const newTotal = updatedItems
+                    .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA' && i.type !== 'LINK')
+                    .reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
                 
                 await supabase.from('orders').update({
                     items: updatedItems,
@@ -413,7 +422,9 @@ const AdminPage = () => {
                 }).eq('id', orderToUpdate.id);
             } else {
                 // New Order (New takeaway or new table)
-                const total = items.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
+                const total = items
+                    .filter(i => i.type !== 'METADATA' && i.type !== 'PAYMENT_METADATA' && i.type !== 'LINK')
+                    .reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
                 const orderData = {
                     table_id: tableId,
                     items: items.map(i => ({ ...i, isNew: false })),
@@ -598,6 +609,7 @@ const AdminPage = () => {
 
             if (error) throw error;
 
+            setEditTotal(newTotal);
             setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
             if (newOrder && newOrder.id === orderId) {
                 setNewOrder(updatedOrder); // Keep popup UI in sync
@@ -2011,7 +2023,7 @@ const AdminPage = () => {
                                     );
 
                                     return (
-                                        <>
+                                        <div style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '12px', margin: '0 -12px 0 0' }} className="custom-scrollbar">
                                             {dineInItems.map((item, i) => renderItem(item, `dine-${i}`))}
                                             {parcelItems.length > 0 && (
                                                 <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
@@ -2022,7 +2034,7 @@ const AdminPage = () => {
                                                     {parcelItems.map((item, i) => renderItem(item, `parcel-${i}`))}
                                                 </div>
                                             )}
-                                        </>
+                                        </div>
                                     );
                                 })()}
                                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', marginTop: '20px', display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: 'clamp(1.2rem, 4vw, 1.6rem)', letterSpacing: '-0.02em', color: 'var(--text-main)', flexWrap: 'wrap', gap: '8px' }}>
