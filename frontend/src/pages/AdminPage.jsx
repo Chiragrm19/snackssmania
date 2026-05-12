@@ -68,6 +68,8 @@ const AdminPage = () => {
     const [isAddNewAsParcel, setIsAddNewAsParcel] = useState(false);
     const [customerContacts, setCustomerContacts] = useState([]);
     const [customerSearch, setCustomerSearch] = useState('');
+    const [newCustomerName, setNewCustomerName] = useState('');
+    const [newCustomerPhone, setNewCustomerPhone] = useState('');
     const [payPhone, setPayPhone] = useState('');
     const [payName, setPayName] = useState('');
     const [payExists, setPayExists] = useState(false);
@@ -81,6 +83,8 @@ const AdminPage = () => {
     
     // Split Payment & Manual Edit States
     const [editTotal, setEditTotal] = useState(0);
+    const [isEditingTotal, setIsEditingTotal] = useState(false);
+    const [billNote, setBillNote] = useState('');
     const [isSplitPayment, setIsSplitPayment] = useState(false);
     const [splitCashAmount, setSplitCashAmount] = useState(0);
     const [splitOnlineAmount, setSplitOnlineAmount] = useState(0);
@@ -194,6 +198,11 @@ const AdminPage = () => {
         }
         fetchInitialData();
 
+        const pollInterval = setInterval(() => {
+            fetchTables();
+            fetchOrders();
+        }, 1500);
+
         const channel = supabase
             .channel('admin-ops')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
@@ -208,6 +217,7 @@ const AdminPage = () => {
             .subscribe();
 
         return () => {
+            clearInterval(pollInterval);
             supabase.removeChannel(channel);
         };
     }, []);
@@ -345,11 +355,13 @@ const AdminPage = () => {
             if (liveOrder) {
                 if (JSON.stringify(liveOrder.items) !== JSON.stringify(selectedTableOrder.items) || liveOrder.total !== selectedTableOrder.total) {
                     setSelectedTableOrder(liveOrder);
-                    setEditTotal(liveOrder.total || 0);
+                    if (!isEditingTotal) {
+                        setEditTotal(liveOrder.total || 0);
+                    }
                 }
             }
         }
-    }, [orders]);
+    }, [orders, isEditingTotal]);
 
     const handleImageUpload = async (file) => {
         if (!file) return null;
@@ -965,6 +977,9 @@ const AdminPage = () => {
             setPayPhone('');
             setPayName('');
             setPayExists(false);
+            
+            const noteItem = (tableOrder.items || []).find(i => i.type === 'BILL_NOTE');
+            setBillNote(noteItem ? noteItem.text : '');
         }
     };
 
@@ -1495,6 +1510,57 @@ const AdminPage = () => {
                     </div>
                 ) : activeTab === 'customers' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
+                            <h2 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '24px' }}>Add New Customer</h2>
+                            <form onSubmit={async (e) => {
+                                e.preventDefault();
+                                if (newCustomerPhone.length !== 10) {
+                                    alert('Phone number must be exactly 10 digits.');
+                                    return;
+                                }
+                                const { error } = await supabase.from('customers').insert({
+                                    name: sanitize(newCustomerName),
+                                    phone_number: newCustomerPhone
+                                });
+                                if (error) {
+                                    if (error.code === '23505') alert('Customer with this phone number already exists!');
+                                    else alert(error.message);
+                                } else {
+                                    setNewCustomerName('');
+                                    setNewCustomerPhone('');
+                                    fetchCustomers();
+                                }
+                            }} style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                <div style={{ flex: 2, minWidth: '200px' }}>
+                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', marginLeft: '4px' }}>Customer Name</p>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. John Doe" 
+                                        required 
+                                        className="glass" 
+                                        value={newCustomerName}
+                                        onChange={(e) => setNewCustomerName(e.target.value)}
+                                        style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} 
+                                    />
+                                </div>
+                                <div style={{ flex: 2, minWidth: '200px' }}>
+                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', marginLeft: '4px' }}>Phone Number (10 Digits)</p>
+                                    <input 
+                                        type="text" 
+                                        placeholder="10 digit number" 
+                                        required 
+                                        className="glass" 
+                                        value={newCustomerPhone}
+                                        onChange={(e) => setNewCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                                        style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} 
+                                    />
+                                </div>
+                                <button type="submit" style={{ padding: '14px 28px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', height: '48px' }}>
+                                    Add Customer
+                                </button>
+                            </form>
+                        </div>
+
                         <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                                 <h1 style={{ fontSize: '1.6rem', fontWeight: '800' }}>Customer Directory</h1>
@@ -2051,7 +2117,9 @@ const AdminPage = () => {
                                                     setSplitOnlineAmount(Math.max(0, newTotal - splitCashAmount));
                                                 }
                                             }}
+                                            onFocus={() => setIsEditingTotal(true)}
                                             onBlur={async () => {
+                                                setIsEditingTotal(false);
                                                 if (editTotal !== selectedTableOrder.total) {
                                                     await supabase.from('orders').update({ total: editTotal }).eq('id', selectedTableOrder.id);
                                                     setSelectedTableOrder(prev => ({ ...prev, total: editTotal }));
@@ -2071,6 +2139,35 @@ const AdminPage = () => {
                                             }}
                                         />
                                     </div>
+                                </div>
+
+                                {/* Add Note Section */}
+                                <div style={{ marginTop: '20px' }}>
+                                    <textarea
+                                        placeholder="Add a note to this bill..."
+                                        className="glass"
+                                        value={billNote}
+                                        onChange={(e) => setBillNote(e.target.value)}
+                                        onBlur={async () => {
+                                            const updatedItems = selectedTableOrder.items.filter(i => i.type !== 'BILL_NOTE');
+                                            if (billNote.trim()) {
+                                                updatedItems.push({ type: 'BILL_NOTE', text: billNote.trim() });
+                                            }
+                                            await supabase.from('orders').update({ items: updatedItems }).eq('id', selectedTableOrder.id);
+                                            setSelectedTableOrder(prev => ({ ...prev, items: updatedItems }));
+                                        }}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 16px',
+                                            borderRadius: '12px',
+                                            color: 'var(--text-main)',
+                                            border: '1px solid var(--border-subtle)',
+                                            outline: 'none',
+                                            fontSize: '0.95rem',
+                                            resize: 'vertical',
+                                            minHeight: '60px'
+                                        }}
+                                    />
                                 </div>
 
                                 {/* Add Item Section */}
@@ -2127,7 +2224,10 @@ const AdminPage = () => {
                                                                     const updatedOrders = await supabase.from('orders').select('*');
                                                                     if (updatedOrders.data) {
                                                                         const latest = updatedOrders.data.find(o => o.id === selectedTableOrder.id);
-                                                                        if (latest) setSelectedTableOrder(latest);
+                                                                        if (latest) {
+                                                                            setSelectedTableOrder(latest);
+                                                                            setEditTotal(latest.total || 0);
+                                                                        }
                                                                     }
                                                                 }}
                                                                 style={{ 
@@ -2153,39 +2253,7 @@ const AdminPage = () => {
                                     )}
                                 </div>
 
-                                {/* Customer Info for Direct Payment */}
-                                <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-                                    <div style={{ position: 'relative' }}>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Customer Phone (10 digits)"
-                                            className="glass"
-                                            value={payPhone}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                                setPayPhone(val);
-                                                checkCustomerByPhone(val);
-                                            }}
-                                            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none', fontSize: '1rem' }}
-                                        />
-                                        {payExists && (
-                                            <span style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.8rem', color: '#4ade80', fontWeight: '800' }}>
-                                                ✅ Exists
-                                            </span>
-                                        )}
-                                    </div>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Customer Name"
-                                        className="glass"
-                                        value={payName}
-                                        onChange={(e) => setPayName(e.target.value)}
-                                        style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', color: 'white', border: '1px solid var(--border-subtle)', outline: 'none', fontSize: '1rem' }}
-                                    />
-                                    {payExists && (
-                                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '4px' }}>* Returning customer detected</p>
-                                    )}
-                                </div>
+
 
                                 {/* Split Payment Controls */}
                                 {isSplitPayment && (
@@ -2856,6 +2924,18 @@ const AdminPage = () => {
                             </div>
                         </div>
 
+                        {/* Bill Note section - Conditional */}
+                        {(() => {
+                            const noteMeta = (historyOrder.items || []).find(i => i.type === 'BILL_NOTE');
+                            if (!noteMeta) return null;
+                            return (
+                                <div className="glass" style={{ padding: '16px 24px', borderRadius: '16px', marginBottom: '24px', backgroundColor: 'rgba(251, 191, 36, 0.05)', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+                                    <p style={{ color: 'var(--amber)', fontWeight: '700', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>📝 Bill Note</p>
+                                    <p style={{ fontWeight: '500', color: 'var(--text-main)', fontSize: '0.95rem', whiteSpace: 'pre-wrap' }}>{noteMeta.text}</p>
+                                </div>
+                            );
+                        })()}
+
                         {/* Customer Details section - Conditional */}
                         {(() => {
                             const custMeta = (historyOrder.items || []).find(i => i.type === 'CUSTOMER_METADATA');
@@ -2887,16 +2967,10 @@ const AdminPage = () => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-                            <button 
-                                onClick={() => deleteHistoryOrder(historyOrder.id)}
-                                style={{ flex: 1, padding: '16px', borderRadius: '16px', background: 'rgba(248,113,113,0.1)', color: '#f87171', fontWeight: '800', border: '1px solid rgba(248,113,113,0.2)', cursor: 'pointer' }}
-                            >
-                                Delete Order
-                            </button>
+                        <div style={{ marginTop: '24px' }}>
                             <button 
                                 onClick={() => { setInvoiceOrder(historyOrder); setHistoryOrder(null); }} 
-                                style={{ flex: 2, padding: '16px', borderRadius: '16px', background: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', border: 'none', cursor: 'pointer' }}
+                                style={{ width: '100%', padding: '16px', borderRadius: '16px', background: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', border: 'none', cursor: 'pointer' }}
                             >
                                 View / Print Invoice
                             </button>

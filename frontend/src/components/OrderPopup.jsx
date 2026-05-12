@@ -108,7 +108,7 @@ const OrderPopup = ({ order, onAccept, onDismiss, onUpdateItemQty }) => {
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
 
-                    <div className="items-list" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div className="items-list" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '40vh', overflowY: 'auto', paddingRight: '8px' }}>
                         {order.items
                             .filter(i => i.type !== 'METADATA')
                             .map((item, idx) => (

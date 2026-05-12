@@ -79,11 +79,30 @@ const MenuPage = () => {
             )
             .subscribe();
 
-        // 2. Menu Polling (Keep items updated rarely, 60s)
+        // 2. Polling Fallback (Backup if Realtime is disabled in Supabase)
+        const pollInterval = setInterval(async () => {
+            const { data } = await supabase
+                .from('tables')
+                .select('is_free')
+                .eq('id', tableId)
+                .single();
+
+            if (data) {
+                if (data.is_free === true && wasOccupied.current) {
+                    setShowThankYou(true);
+                    clearInterval(pollInterval);
+                } else if (data.is_free === false) {
+                    wasOccupied.current = true;
+                }
+            }
+        }, 5000); // Check every 5 seconds
+
+        // 3. Menu Polling (Keep items updated rarely, 60s)
         const menuInterval = setInterval(fetchMenu, 60000); // Check every 60 seconds
 
         return () => {
             supabase.removeChannel(channel);
+            clearInterval(pollInterval);
             clearInterval(menuInterval);
         };
     }, [tableId]);
