@@ -2,7 +2,28 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import MenuCard from '../components/MenuCard';
-import CartBar from '../components/CartBar';
+const categoryEmojiMap = {
+    'chinese': '🥢',
+    'cold drinks': '🥤',
+    'coffee': '☕',
+    'toast': '🍞',
+    'water': '💧',
+    'combo': '🍱',
+    'pasta': '🍝',
+    'chole bhature': '🍛',
+    'rolls': '🌯',
+    'paneer': '🧀',
+    'rice': '🍚',
+    'pav bhaji': '🥘',
+    'burgers': '🍔',
+    'pizza': '🍕',
+    'momos': '🥟',
+    'fries': '🍟',
+    'maggie': '🍜',
+    'sandwich': '🥪',
+    'chaat': '🧆',
+    'noodles': '🍜'
+};
 
 const MenuPage = () => {
     const [categories, setCategories] = useState([{ id: 'all', name: 'All' }]);
@@ -486,17 +507,24 @@ const MenuPage = () => {
                                         <img
                                             src={cat.image_url}
                                             alt={cat.name}
+                                            onError={(e) => {
+                                                e.target.style.display = 'none';
+                                                if (e.target.nextSibling) {
+                                                    e.target.nextSibling.style.display = 'inline-block';
+                                                }
+                                            }}
                                             style={{
-                                                width: '26px',
-                                                height: '26px',
+                                                width: '24px',
+                                                height: '24px',
                                                 borderRadius: '50%',
                                                 objectFit: 'cover',
                                                 border: isActive ? '1.5px solid var(--bg-dark)' : '1px solid rgba(255,255,255,0.3)',
                                             }}
                                         />
-                                    ) : (
-                                        <span>📂</span>
-                                    )}
+                                    ) : null}
+                                    <span style={{ display: cat.image_url ? 'none' : 'inline-block', fontSize: '0.9rem' }}>
+                                        {categoryEmojiMap[cat.name?.toLowerCase()] || '📂'}
+                                    </span>
                                     <span>{cat.name}</span>
                                 </>
                             )}
