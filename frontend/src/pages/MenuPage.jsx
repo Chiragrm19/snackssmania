@@ -2,28 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import MenuCard from '../components/MenuCard';
-const categoryEmojiMap = {
-    'chinese': '🥢',
-    'cold drinks': '🥤',
-    'coffee': '☕',
-    'toast': '🍞',
-    'water': '💧',
-    'combo': '🍱',
-    'pasta': '🍝',
-    'chole bhature': '🍛',
-    'rolls': '🌯',
-    'paneer': '🧀',
-    'rice': '🍚',
-    'pav bhaji': '🥘',
-    'burgers': '🍔',
-    'pizza': '🍕',
-    'momos': '🥟',
-    'fries': '🍟',
-    'maggie': '🍜',
-    'sandwich': '🥪',
-    'chaat': '🧆',
-    'noodles': '🍜'
-};
+import CartBar from '../components/CartBar';
 
 const MenuPage = () => {
     const [categories, setCategories] = useState([{ id: 'all', name: 'All' }]);
@@ -466,7 +445,7 @@ const MenuPage = () => {
 
             <div style={{
                 display: 'flex',
-                gap: '10px',
+                gap: '8px',
                 overflowX: 'auto',
                 padding: '4px 2px 16px 2px',
                 marginBottom: '12px',
@@ -482,52 +461,20 @@ const MenuPage = () => {
                             onClick={() => setActiveCategory(cat.id === 'all' ? 'all' : cat.name)}
                             style={{
                                 flexShrink: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: cat.image_url ? '6px 16px 6px 8px' : '10px 18px',
+                                padding: '9px 16px',
                                 borderRadius: '24px',
-                                background: isActive
-                                    ? 'var(--accent-white)'
-                                    : 'rgba(255,255,255,0.06)',
+                                background: isActive ? 'var(--accent-white)' : 'rgba(255,255,255,0.06)',
                                 color: isActive ? 'var(--bg-dark)' : 'var(--text-main)',
                                 border: isActive ? 'none' : '1px solid var(--border-subtle)',
                                 fontWeight: '700',
-                                fontSize: '0.85rem',
+                                fontSize: '0.82rem',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s ease',
-                                letterSpacing: '0.01em'
+                                letterSpacing: '0.01em',
+                                whiteSpace: 'nowrap',
                             }}
                         >
-                            {cat.id === 'all' ? (
-                                '🏠 All'
-                            ) : (
-                                <>
-                                    {cat.image_url ? (
-                                        <img
-                                            src={cat.image_url}
-                                            alt={cat.name}
-                                            onError={(e) => {
-                                                e.target.style.display = 'none';
-                                                if (e.target.nextSibling) {
-                                                    e.target.nextSibling.style.display = 'inline-block';
-                                                }
-                                            }}
-                                            style={{
-                                                width: '24px',
-                                                height: '24px',
-                                                borderRadius: '50%',
-                                                objectFit: 'cover',
-                                                border: isActive ? '1.5px solid var(--bg-dark)' : '1px solid rgba(255,255,255,0.3)',
-                                            }}
-                                        />
-                                    ) : null}
-                                    <span style={{ display: cat.image_url ? 'none' : 'inline-block', fontSize: '0.9rem' }}>
-                                        {categoryEmojiMap[cat.name?.toLowerCase()] || '📂'}
-                                    </span>
-                                    <span>{cat.name}</span>
-                                </>
-                            )}
+                            {cat.id === 'all' ? 'All' : cat.name}
                         </button>
                     );
                 })}
