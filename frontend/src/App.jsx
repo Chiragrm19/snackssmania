@@ -35,7 +35,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/admin" />} />
+        <Route path="/" element={<Navigate to="/menu?table=1" />} />
         <Route path="/qr" element={<QRPage />} />
         <Route path="/menu" element={<MenuPage />} />
         <Route path="/login" element={session ? <Navigate to="/admin" /> : <LoginPage />} />

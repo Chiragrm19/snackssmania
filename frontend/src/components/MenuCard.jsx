@@ -1,228 +1,245 @@
 import React from 'react';
 
-const getHueFromString = (str) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return Math.abs(hash % 360);
-};
-
 const MenuCard = ({ item, cartQuantity, onAdd, onRemove }) => {
     const isSelected = cartQuantity > 0;
-    const hue = getHueFromString(item.name + (item.emoji || ''));
+    const isAvailable = item.is_available !== false;
+    const discountedPrice = item.discount_pct > 0
+        ? Math.round(item.price * (1 - item.discount_pct / 100))
+        : item.price;
 
     return (
         <div
-            className={`menu-item-card animate-fade ${isSelected ? 'in-cart' : ''}`}
             style={{
-                background: isSelected
-                    ? `linear-gradient(155deg, hsla(${hue}, 60%, 40%, 0.18) 0%, rgba(255,255,255,0.03) 100%)`
-                    : undefined,
-                borderColor: isSelected ? `hsla(${hue}, 60%, 50%, 0.30)` : undefined,
-                borderTopColor: isSelected ? `hsla(${hue}, 60%, 60%, 0.55)` : undefined,
-                opacity: item.is_available === false ? 0.6 : 1,
-                filter: item.is_available === false ? 'grayscale(0.5)' : 'none',
-                boxShadow: isSelected
-                    ? `0 6px 24px rgba(0,0,0,0.7), 0 0 30px hsla(${hue}, 60%, 50%, 0.12), inset 0 1px 0 hsla(${hue}, 80%, 70%, 0.2)`
-                    : undefined,
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '0',
-                pointerEvents: item.is_available === false ? 'none' : 'auto'
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+                padding: '18px 20px',
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                background: isSelected
+                    ? 'linear-gradient(90deg, rgba(167,139,250,0.07) 0%, transparent 100%)'
+                    : 'transparent',
+                transition: 'background 0.2s ease',
+                opacity: isAvailable ? 1 : 0.5,
+                position: 'relative',
             }}
         >
-            {/* Emoji / Image Section */}
-            <div style={{
-                background: `linear-gradient(155deg, hsla(${hue}, 50%, 50%, ${isSelected ? 0.22 : 0.08}), rgba(0,0,0,0.3))`,
-                height: '140px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '52px',
-                position: 'relative',
-                borderRadius: '12px 12px 0 0',
-                overflow: 'hidden',
-                marginTop: '-12px',
-                marginLeft: '-16px',
-                marginRight: '-16px',
-                marginBottom: '16px',
-                transition: 'background 0.3s ease',
-            }}>
-                {/* Top shimmer line on area */}
-                <div style={{
-                    position: 'absolute',
-                    top: 0, left: 20, right: 20,
-                    height: '1px',
-                    background: `linear-gradient(90deg, transparent, hsla(${hue}, 80%, 70%, 0.5), transparent)`
-                }} />
+            {/* LEFT: All text info */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
 
-                {item.image_url ? (
-                    <img 
-                        src={item.image_url} 
-                        alt={item.name} 
-                        loading="lazy"
-                        onLoad={(e) => e.target.style.opacity = 1}
-                        style={{ 
-                            width: '100%', 
-                            height: '100%', 
-                            objectFit: 'cover',
-                            opacity: 0,
-                            filter: isSelected ? 'brightness(1.1) contrast(1.1)' : 'none',
-                            transition: 'all 0.5s ease',
-                            transform: isSelected ? 'scale(1.1)' : 'scale(1)'
-                        }} 
-                    />
-                ) : (
-                    <span style={{
-                        filter: isSelected ? `drop-shadow(0 4px 12px hsla(${hue}, 80%, 60%, 0.6))` : 'none',
-                        transition: 'filter 0.3s ease',
-                        transform: isSelected ? 'scale(1.08)' : 'scale(1)',
-                        display: 'inline-block',
-                        transition: 'all 0.3s cubic-bezier(0.19,1,0.22,1)',
-                    }}>
-                        🍽️
-                    </span>
-                )}
-
-                {/* Availability Overlay */}
-                {item.is_available === false && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }}>
-                         <span style={{ backgroundColor: 'rgba(0,0,0,0.8)', color: 'white', padding: '6px 14px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', letterSpacing: '0.05em' }}>UNAVAILABLE</span>
-                    </div>
-                )}
-
-                {/* SIGNATURE badge */}
-                {item.is_signature && (
+                {/* Veg dot + badges row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {/* Veg/Non-Veg Indicator (FSSAI style box) */}
                     <div style={{
-                        position: 'absolute',
-                        top: '10px',
-                        left: '12px',
-                        padding: '3px 9px',
-                        borderRadius: '20px',
-                        background: 'linear-gradient(135deg, #fff 0%, #ddd 100%)',
-                        color: '#050507',
-                        fontSize: '0.6rem',
-                        fontWeight: '800',
-                        letterSpacing: '0.06em',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,1)',
+                        width: '16px',
+                        height: '16px',
+                        borderRadius: '3px',
+                        border: item.is_veg ? '1.5px solid #4ade80' : '1.5px solid #f87171',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
                     }}>
-                        ★ SIGNATURE
+                        <div style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: item.is_veg ? '#4ade80' : '#f87171',
+                        }} />
                     </div>
-                )}
 
-                {/* Veg/NonVeg dot */}
-                <div style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '12px',
-                    width: '10px',
-                    height: '10px',
-                    borderRadius: '50%',
-                    backgroundColor: item.is_veg ? '#4ade80' : '#f87171',
-                    border: '1.5px solid rgba(255,255,255,0.3)',
-                    boxShadow: item.is_veg ? '0 0 8px rgba(74,222,128,0.6)' : '0 0 8px rgba(248,113,113,0.6)',
-                }} />
-            </div>
-
-            {/* Body */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <h3 style={{
-                    fontSize: '1rem',
-                    fontWeight: '700',
-                    color: 'var(--text-main)',
-                    letterSpacing: '-0.02em',
-                    lineHeight: 1.3,
-                }}>
-                    {item.name}
-                </h3>
-                <p style={{
-                    fontSize: '0.78rem',
-                    color: 'var(--text-muted)',
-                    lineHeight: 1.4,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                    minHeight: '32px',
-                }}>
-                    {item.description}
-                </p>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-                    {/* Price */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                        {item.discount_pct > 0 && (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)', textDecoration: 'line-through' }}>
-                                ₹{item.price}
-                            </span>
-                        )}
+                    {/* Bestseller badge */}
+                    {item.is_signature && (
                         <span style={{
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            background: 'rgba(251,191,36,0.12)',
+                            color: '#fbbf24',
+                            fontSize: '0.6rem',
                             fontWeight: '800',
-                            fontSize: '1.15rem',
-                            letterSpacing: '-0.03em',
-                            background: isSelected
-                                ? `linear-gradient(135deg, hsla(${hue}, 80%, 70%, 1), hsla(${hue}, 60%, 55%, 1))`
-                                : 'linear-gradient(135deg, #fff, #bbb)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            transition: 'all 0.3s ease',
+                            letterSpacing: '0.06em',
+                            border: '1px solid rgba(251,191,36,0.25)',
+                            textTransform: 'uppercase',
                         }}>
-                            ₹{item.discount_pct > 0
-                                ? Math.round(item.price * (1 - item.discount_pct / 100))
-                                : item.price}
+                            ★ Bestseller
                         </span>
-                    </div>
+                    )}
 
-                    {/* Cart controls */}
-                    {cartQuantity > 0 ? (
-                        <div className="qty-control">
-                            <button
-                                className="qty-btn"
-                                onClick={() => onRemove(item.id)}
-                                aria-label="Remove one"
-                            >−</button>
-                            <span style={{
-                                fontWeight: '800',
-                                width: '22px',
-                                textAlign: 'center',
-                                fontSize: '0.95rem',
-                                color: 'var(--text-main)',
-                            }}>
-                                {cartQuantity}
-                            </span>
-                            <button
-                                className="qty-btn"
-                                onClick={() => onAdd(item)}
-                                aria-label="Add one"
-                                style={{
-                                    background: 'linear-gradient(135deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.10) 100%)',
-                                    color: '#fff',
-                                }}
-                            >+</button>
-                        </div>
-                    ) : (
-                        <button
-                            onClick={() => onAdd(item)}
-                            disabled={item.is_available === false}
-                            style={{
-                                padding: '7px 18px',
-                                background: item.is_available === false ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%)',
-                                border: '1px solid rgba(255,255,255,0.14)',
-                                borderTopColor: 'rgba(255,255,255,0.24)',
-                                color: item.is_available === false ? 'var(--text-faint)' : 'var(--text-main)',
-                                fontWeight: '700',
-                                fontSize: '0.88rem',
-                                borderRadius: '20px',
-                                boxShadow: item.is_available === false ? 'none' : '0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
-                                letterSpacing: '-0.01em',
-                            }}
-                        >
-                            {item.is_available === false ? 'Sold Out' : '+ Add'}
-                        </button>
+                    {/* Sold Out badge */}
+                    {!isAvailable && (
+                        <span style={{
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            background: 'rgba(239,68,68,0.12)',
+                            color: '#f87171',
+                            fontSize: '0.6rem',
+                            fontWeight: '800',
+                            letterSpacing: '0.06em',
+                            border: '1px solid rgba(239,68,68,0.25)',
+                        }}>
+                            SOLD OUT
+                        </span>
+                    )}
+
+                    {/* Discount badge */}
+                    {item.discount_pct > 0 && (
+                        <span style={{
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            background: 'rgba(52,211,153,0.12)',
+                            color: '#34d399',
+                            fontSize: '0.6rem',
+                            fontWeight: '800',
+                            border: '1px solid rgba(52,211,153,0.25)',
+                        }}>
+                            {item.discount_pct}% OFF
+                        </span>
                     )}
                 </div>
+
+                {/* Item Name */}
+                <h3 style={{
+                    margin: 0,
+                    fontSize: '0.97rem',
+                    fontWeight: '700',
+                    color: 'var(--text-main)',
+                    letterSpacing: '-0.01em',
+                    lineHeight: 1.3,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                }}>
+                    {item.emoji && <span style={{ marginRight: '6px', fontSize: '1rem' }}>{item.emoji}</span>}
+                    {item.name}
+                </h3>
+
+                {/* Description */}
+                {item.description && (
+                    <p style={{
+                        margin: 0,
+                        fontSize: '0.78rem',
+                        color: 'var(--text-muted)',
+                        lineHeight: 1.45,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        fontWeight: '400',
+                        maxWidth: '90%',
+                    }}>
+                        {item.description}
+                    </p>
+                )}
+
+                {/* Price */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginTop: '2px' }}>
+                    <span style={{
+                        fontWeight: '800',
+                        fontSize: '1rem',
+                        color: 'var(--text-main)',
+                        letterSpacing: '-0.02em',
+                    }}>
+                        ₹{discountedPrice}
+                    </span>
+                    {item.discount_pct > 0 && (
+                        <span style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-faint)',
+                            textDecoration: 'line-through',
+                        }}>
+                            ₹{item.price}
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            {/* RIGHT: Add / Qty Controls */}
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                {cartQuantity > 0 ? (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        border: '1.5px solid rgba(167,139,250,0.5)',
+                        borderRadius: '10px',
+                        padding: '4px 10px',
+                        background: 'rgba(167,139,250,0.1)',
+                        minWidth: '88px',
+                        justifyContent: 'space-between',
+                    }}>
+                        <button
+                            onClick={() => onRemove(item.id)}
+                            aria-label="Remove one"
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#a78bfa',
+                                fontSize: '1.15rem',
+                                cursor: 'pointer',
+                                fontWeight: '700',
+                                padding: '0',
+                                lineHeight: 1,
+                            }}
+                        >−</button>
+                        <span style={{
+                            fontWeight: '800',
+                            fontSize: '0.9rem',
+                            color: '#a78bfa',
+                            minWidth: '14px',
+                            textAlign: 'center',
+                        }}>
+                            {cartQuantity}
+                        </span>
+                        <button
+                            onClick={() => onAdd(item)}
+                            aria-label="Add one"
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#a78bfa',
+                                fontSize: '1.15rem',
+                                cursor: 'pointer',
+                                fontWeight: '700',
+                                padding: '0',
+                                lineHeight: 1,
+                            }}
+                        >+</button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => onAdd(item)}
+                        disabled={!isAvailable}
+                        style={{
+                            padding: '7px 20px',
+                            background: 'transparent',
+                            border: '1.5px solid rgba(255,255,255,0.2)',
+                            color: isAvailable ? 'var(--text-main)' : 'var(--text-faint)',
+                            fontWeight: '700',
+                            fontSize: '0.85rem',
+                            borderRadius: '10px',
+                            cursor: isAvailable ? 'pointer' : 'not-allowed',
+                            transition: 'border-color 0.15s ease, background 0.15s ease',
+                            letterSpacing: '0.01em',
+                            minWidth: '72px',
+                            textAlign: 'center',
+                        }}
+                        onMouseEnter={e => {
+                            if (isAvailable) {
+                                e.target.style.borderColor = 'rgba(167,139,250,0.6)';
+                                e.target.style.background = 'rgba(167,139,250,0.08)';
+                                e.target.style.color = '#a78bfa';
+                            }
+                        }}
+                        onMouseLeave={e => {
+                            e.target.style.borderColor = 'rgba(255,255,255,0.2)';
+                            e.target.style.background = 'transparent';
+                            e.target.style.color = isAvailable ? 'var(--text-main)' : 'var(--text-faint)';
+                        }}
+                    >
+                        {isAvailable ? '+ ADD' : 'N/A'}
+                    </button>
+                )}
             </div>
         </div>
     );

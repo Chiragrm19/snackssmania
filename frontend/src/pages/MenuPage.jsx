@@ -62,7 +62,7 @@ const MenuPage = () => {
         };
         checkInitialStatus();
 
-        // 1. Real-time listener (High performance)
+        // 1. Real-time listener (High performance WebSocket)
         const channel = supabase
             .channel(`table-status-${tableId}`)
             .on('postgres_changes',
@@ -79,31 +79,22 @@ const MenuPage = () => {
             )
             .subscribe();
 
-        // 2. Polling Fallback (Backup if Realtime is disabled in Supabase)
-        const pollInterval = setInterval(async () => {
-            const { data } = await supabase
-                .from('tables')
-                .select('is_free')
-                .eq('id', tableId)
-                .single();
-
+        // 2. Refetch on tab focus (e.g. user returns to app)
+        const handleFocus = async () => {
+            const { data } = await supabase.from('tables').select('is_free').eq('id', tableId).single();
             if (data) {
                 if (data.is_free === true && wasOccupied.current) {
                     setShowThankYou(true);
-                    clearInterval(pollInterval);
                 } else if (data.is_free === false) {
                     wasOccupied.current = true;
                 }
             }
-        }, 5000); // Check every 5 seconds
-
-        // 3. Menu Polling (Keep items updated rarely, 60s)
-        const menuInterval = setInterval(fetchMenu, 60000); // Check every 60 seconds
+        };
+        window.addEventListener('focus', handleFocus);
 
         return () => {
             supabase.removeChannel(channel);
-            clearInterval(pollInterval);
-            clearInterval(menuInterval);
+            window.removeEventListener('focus', handleFocus);
         };
     }, [tableId]);
 
@@ -292,6 +283,15 @@ const MenuPage = () => {
         return matchesSearch && matchesCategory;
     });
 
+    // Group items by category for Zomato-style sectioned display
+    const groupedItems = filteredItems.reduce((acc, item) => {
+        const cat = item.category || 'Other';
+        if (!acc[cat]) acc[cat] = [];
+        acc[cat].push(item);
+        return acc;
+    }, {});
+    const groupedKeys = Object.keys(groupedItems);
+
     const cartItemsArray = Object.values(cart);
     const cartCount = cartItemsArray.reduce((acc, curr) => acc + curr.qty, 0);
     const cartTotal = cartItemsArray.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
@@ -445,10 +445,10 @@ const MenuPage = () => {
 
             <div style={{
                 display: 'flex',
-                gap: '16px',
+                gap: '10px',
                 overflowX: 'auto',
-                padding: '8px 4px 28px 4px',
-                marginBottom: '16px',
+                padding: '4px 2px 16px 2px',
+                marginBottom: '12px',
                 msOverflowStyle: 'none',
                 scrollbarWidth: 'none',
                 WebkitOverflowScrolling: 'touch',
@@ -459,56 +459,47 @@ const MenuPage = () => {
                         <button
                             key={cat.id}
                             onClick={() => setActiveCategory(cat.id === 'all' ? 'all' : cat.name)}
-                            className={`cat-card ${isActive ? 'active' : ''}`}
                             style={{
                                 flexShrink: 0,
                                 display: 'flex',
-                                flexDirection: 'column',
                                 alignItems: 'center',
-                                gap: '10px',
-                                background: 'none',
-                                border: 'none',
+                                gap: '8px',
+                                padding: cat.image_url ? '6px 16px 6px 8px' : '10px 18px',
+                                borderRadius: '24px',
+                                background: isActive
+                                    ? 'var(--accent-white)'
+                                    : 'rgba(255,255,255,0.06)',
+                                color: isActive ? 'var(--bg-dark)' : 'var(--text-main)',
+                                border: isActive ? 'none' : '1px solid var(--border-subtle)',
+                                fontWeight: '700',
+                                fontSize: '0.85rem',
                                 cursor: 'pointer',
-                                outline: 'none',
-                                transition: 'all 0.4s cubic-bezier(0.2, 1, 0.3, 1)',
-                                transform: isActive ? 'scale(1.05)' : 'scale(1)',
-                                width: '80px'
+                                transition: 'all 0.2s ease',
+                                letterSpacing: '0.01em'
                             }}
                         >
-                            <div className="cat-image-container" style={{
-                                width: '72px',
-                                height: '72px',
-                                borderRadius: '22px',
-                                background: isActive ? 'linear-gradient(135deg, #fff 0%, #eef0ff 100%)' : 'var(--glass)',
-                                border: isActive ? '2px solid var(--accent-purple)' : '1px solid var(--border-subtle)',
-                                boxShadow: isActive ? '0 12px 24px rgba(167,139,250,0.3)' : 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                overflow: 'hidden',
-                                transition: 'all 0.3s'
-                            }}>
-                                {cat.image_url ? (
-                                    <img 
-                                        src={cat.image_url} 
-                                        alt={cat.name} 
-                                        loading="lazy"
-                                        onLoad={(e) => e.target.style.opacity = 1}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0, transition: 'opacity 0.3s' }} 
-                                    />
-                                ) : (
-                                    <span style={{ fontSize: '1.6rem', filter: isActive ? 'none' : 'grayscale(0.5)' }}>{cat.id === 'all' ? '🏠' : '🍽️'}</span>
-                                )}
-                            </div>
-                            <span className="cat-name-text" style={{ 
-                                fontSize: '0.78rem', 
-                                fontWeight: '800', 
-                                color: isActive ? 'var(--text-main)' : 'var(--text-muted)',
-                                letterSpacing: '0.04em',
-                                textTransform: 'uppercase'
-                            }}>
-                                {cat.name}
-                            </span>
+                            {cat.id === 'all' ? (
+                                '🏠 All'
+                            ) : (
+                                <>
+                                    {cat.image_url ? (
+                                        <img
+                                            src={cat.image_url}
+                                            alt={cat.name}
+                                            style={{
+                                                width: '26px',
+                                                height: '26px',
+                                                borderRadius: '50%',
+                                                objectFit: 'cover',
+                                                border: isActive ? '1.5px solid var(--bg-dark)' : '1px solid rgba(255,255,255,0.3)',
+                                            }}
+                                        />
+                                    ) : (
+                                        <span>📂</span>
+                                    )}
+                                    <span>{cat.name}</span>
+                                </>
+                            )}
                         </button>
                     );
                 })}
@@ -528,17 +519,52 @@ const MenuPage = () => {
                     <p style={{ color: 'var(--text-faint)', fontSize: '0.85rem', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Loading Menu</p>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px', paddingBottom: '120px' }}>
-                    {filteredItems.map((item, i) => (
-                        <div key={item.id} style={{ animationDelay: `${i * 0.05}s` }}>
-                            <MenuCard
-                                item={item}
-                                cartQuantity={cart[item.id]?.qty || 0}
-                                onAdd={addToCart}
-                                onRemove={removeFromCart}
-                            />
-                        </div>
-                    ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '120px' }}>
+                    {groupedKeys.length === 0 ? (
+                        <p style={{ textAlign: 'center', color: 'var(--text-faint)', padding: '60px 0', fontSize: '0.95rem' }}>No items found.</p>
+                    ) : (
+                        groupedKeys.map(catName => (
+                            <div key={catName}>
+                                {/* Category Section Header */}
+                                {activeCategory === 'all' && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px', padding: '0 4px' }}>
+                                        <h2 style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: '800',
+                                            color: 'var(--text-faint)',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.1em',
+                                            margin: 0,
+                                            whiteSpace: 'nowrap',
+                                        }}>
+                                            {catName}
+                                        </h2>
+                                        <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+                                        <span style={{ fontSize: '0.68rem', color: 'var(--text-faint)', fontWeight: '500' }}>
+                                            {groupedItems[catName].length} items
+                                        </span>
+                                    </div>
+                                )}
+                                {/* Items card container */}
+                                <div style={{
+                                    background: 'var(--glass)',
+                                    borderRadius: '20px',
+                                    border: '1px solid var(--border-subtle)',
+                                    overflow: 'hidden',
+                                }}>
+                                    {groupedItems[catName].map((item, i) => (
+                                        <MenuCard
+                                            key={item.id}
+                                            item={item}
+                                            cartQuantity={cart[item.id]?.qty || 0}
+                                            onAdd={addToCart}
+                                            onRemove={removeFromCart}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))
+                    )}
                 </div>
             )}
         </div>

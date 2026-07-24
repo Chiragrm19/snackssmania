@@ -198,11 +198,20 @@ const AdminPage = () => {
         }
         fetchInitialData();
 
+        // 1. Gentle safety heartbeat polling (45s) only as backup if Realtime disconnects
         const pollInterval = setInterval(() => {
             fetchTables();
             fetchOrders();
-        }, 1500);
+        }, 45000);
 
+        // 2. Refetch immediately when tab regains focus (e.g. phone screen turned back on)
+        const handleFocus = () => {
+            fetchTables();
+            fetchOrders();
+        };
+        window.addEventListener('focus', handleFocus);
+
+        // 3. High-performance Supabase Realtime Channels (Instant update on database change)
         const channel = supabase
             .channel('admin-ops')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
@@ -218,6 +227,7 @@ const AdminPage = () => {
 
         return () => {
             clearInterval(pollInterval);
+            window.removeEventListener('focus', handleFocus);
             supabase.removeChannel(channel);
         };
     }, []);
@@ -1260,18 +1270,11 @@ const AdminPage = () => {
                             <form onSubmit={async (e) => {
                                 e.preventDefault();
                                 const formData = new FormData(e.target);
-                                const imageFile = formData.get('image');
-                                let image_url = null;
-                                
-                                if (imageFile && imageFile.size > 0) {
-                                    image_url = await handleImageUpload(imageFile);
-                                }
 
                                 const newItem = {
                                     name: sanitize(formData.get('name')),
                                     price: parseFloat(formData.get('price')),
                                     category: formData.get('category'),
-                                    image_url: image_url,
                                     description: sanitize(formData.get('description')),
                                     is_available: true
                                 };
@@ -1292,12 +1295,8 @@ const AdminPage = () => {
                                     </select>
                                 </div>
                                 <textarea name="description" placeholder="Description" className="glass" style={{ padding: '16px', borderRadius: '16px', color: 'var(--text-main)', minHeight: '80px', outline: 'none', resize: 'none' }}></textarea>
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginLeft: '4px' }}>Item Image</p>
-                                    <input type="file" name="image" accept="image/*" className="glass" style={{ padding: '12px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
-                                </div>
-                                <button type="submit" disabled={isUploading} style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', marginTop: '8px', opacity: isUploading ? 0.5 : 1 }}>
-                                    {isUploading ? 'Uploading...' : 'Add Menu Item'}
+                                <button type="submit" style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', marginTop: '8px' }}>
+                                    Add Menu Item
                                 </button>
                             </form>
 
@@ -1321,7 +1320,6 @@ const AdminPage = () => {
                                 {menuItems.filter(item => item.name.toLowerCase().includes(menuSearch.toLowerCase())).map(item => (
                                     <div key={item.id} className="glass" style={{ padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            {item.image_url && <img src={item.image_url} alt={item.name} style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', opacity: item.is_available === false ? 0.4 : 1 }} />}
                                             <span style={{ fontWeight: '600', color: item.is_available === false ? 'var(--text-muted)' : 'var(--text-main)', textDecoration: item.is_available === false ? 'line-through' : 'none' }}>
                                                 {item.name}
                                             </span>
@@ -1471,7 +1469,7 @@ const AdminPage = () => {
                                 <input name="name" placeholder="e.g. Burgers" required className="glass" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none' }} />
                             </div>
                             <div style={{ flex: 1, minWidth: '150px' }}>
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', marginLeft: '4px' }}>Image</p>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '8px', marginLeft: '4px' }}>Category Image</p>
                                 <input type="file" name="image" accept="image/*" className="glass" style={{ width: '100%', padding: '10px', borderRadius: '16px', color: 'var(--text-main)', outline: 'none', fontSize: '0.8rem' }} />
                             </div>
                             <button type="submit" disabled={isUploading} style={{ padding: '14px 28px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '700', borderRadius: '16px', height: '48px', opacity: isUploading ? 0.5 : 1 }}>
@@ -1484,9 +1482,9 @@ const AdminPage = () => {
                                 <div key={cat.id} className="glass" style={{ padding: '20px', borderRadius: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                                         {cat.image_url ? (
-                                            <img src={cat.image_url} alt={cat.name} style={{ width: '50px', height: '50px', borderRadius: '12px', objectFit: 'cover' }} />
+                                            <img src={cat.image_url} alt={cat.name} style={{ width: '44px', height: '44px', borderRadius: '12px', objectFit: 'cover' }} />
                                         ) : (
-                                            <div style={{ width: '50px', height: '50px', borderRadius: '12px', backgroundColor: 'var(--glass)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem' }}>📂</div>
+                                            <div style={{ width: '44px', height: '44px', borderRadius: '12px', backgroundColor: 'var(--glass)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📂</div>
                                         )}
                                         <span style={{ fontWeight: '700', fontSize: '1.1rem' }}>{cat.name}</span>
                                     </div>
@@ -2721,19 +2719,12 @@ const AdminPage = () => {
                         <form onSubmit={async (e) => {
                             e.preventDefault();
                             const formData = new FormData(e.target);
-                            const imageFile = formData.get('image');
-                            let image_url = editItem.image_url;
-                            
-                            if (imageFile && imageFile.size > 0) {
-                                image_url = await handleImageUpload(imageFile);
-                            }
 
                             const updates = {
                                 name: sanitize(formData.get('name')),
                                 price: Math.max(0, parseInt(formData.get('price')) || 0),
                                 category: sanitize(formData.get('category')),
                                 description: sanitize(formData.get('description')),
-                                image_url: image_url,
                                 is_veg: formData.get('is_veg') === 'on',
                                 is_signature: formData.get('is_signature') === 'on',
                                 discount_pct: Math.min(100, Math.max(0, parseInt(formData.get('discount_pct')) || 0))
@@ -2754,16 +2745,12 @@ const AdminPage = () => {
                                 </select>
                             </div>
                             <textarea name="description" defaultValue={editItem.description} placeholder="Description" className="glass" style={{ padding: '14px', borderRadius: '14px', color: 'var(--text-main)', minHeight: '80px' }} />
-                            <div style={{ fontSize: '0.8rem' }}>
-                                <p style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Update Image (Optional)</p>
-                                <input type="file" name="image" accept="image/*" className="glass" style={{ width: '100%', padding: '10px', borderRadius: '12px' }} />
-                            </div>
                             <div style={{ display: 'flex', gap: '20px', fontSize: '0.9rem' }}>
                                 <label><input type="checkbox" name="is_veg" defaultChecked={editItem.is_veg} /> Veg</label>
                                 <label><input type="checkbox" name="is_signature" defaultChecked={editItem.is_signature} /> Signature</label>
                             </div>
-                            <button type="submit" disabled={isUploading} style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', borderRadius: '16px', marginTop: '12px' }}>
-                                {isUploading ? 'Uploading...' : 'Save Changes'}
+                            <button type="submit" style={{ padding: '16px', backgroundColor: 'var(--accent-white)', color: 'var(--bg-dark)', fontWeight: '800', borderRadius: '16px', marginTop: '12px' }}>
+                                Save Changes
                             </button>
                         </form>
                     </div>
@@ -2781,17 +2768,10 @@ const AdminPage = () => {
                         <form onSubmit={async (e) => {
                             e.preventDefault();
                             const formData = new FormData(e.target);
-                            const imageFile = formData.get('image');
-                            let image_url = editCategory.image_url;
-                            
-                            if (imageFile && imageFile.size > 0) {
-                                image_url = await handleImageUpload(imageFile);
-                            }
 
                             const newName = sanitize(formData.get('name'));
                             const { error } = await supabase.from('categories').update({
-                                name: newName,
-                                image_url: image_url
+                                name: newName
                             }).eq('id', editCategory.id);
 
                             if (error) alert(error.message);
