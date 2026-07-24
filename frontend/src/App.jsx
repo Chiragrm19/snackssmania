@@ -35,17 +35,17 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/menu?table=1" />} />
+        <Route path="/" element={<Navigate to="/admin" replace />} />
         <Route path="/qr" element={<QRPage />} />
         <Route path="/menu" element={<MenuPage />} />
-        <Route path="/login" element={session ? <Navigate to="/admin" /> : <LoginPage />} />
+        <Route path="/login" element={session ? <Navigate to="/admin" replace /> : <LoginPage />} />
         <Route
           path="/admin"
-          element={session ? <AdminPage /> : <Navigate to="/login" />}
+          element={session ? <AdminPage /> : <Navigate to="/login" replace />}
         />
         <Route
           path="/dashboard"
-          element={session ? <DashboardPage /> : <Navigate to="/login" />}
+          element={session ? <DashboardPage /> : <Navigate to="/login" replace />}
         />
       </Routes>
     </BrowserRouter>
